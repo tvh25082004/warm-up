@@ -155,8 +155,9 @@ const HeadTiltGame = () => {
     let detectedTilt = null;
     if (total > 30) {
       const leftRatio = leftCount / total;
-      if (leftRatio > 0.62) detectedTilt = 'left';
-      else if (leftRatio < 0.38) detectedTilt = 'right';
+      // Require 75% of face pixels on one side to trigger -> significant tilt
+      if (leftRatio > 0.75) detectedTilt = 'left';
+      else if (leftRatio < 0.25) detectedTilt = 'right';
     }
 
     if (!feedback && !gameOver) {
@@ -170,31 +171,31 @@ const HeadTiltGame = () => {
     dCtx.drawImage(video, -W, 0, W, H);
     dCtx.restore();
 
-    // Draw center line
-    dCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    // Draw center deadzone box
+    const boxWidth = W * 0.4; // 40% of screen in the middle
+    const boxX = (W - boxWidth) / 2;
+    dCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
     dCtx.lineWidth = 2;
     dCtx.setLineDash([8, 4]);
-    dCtx.beginPath();
-    dCtx.moveTo(midX, 0);
-    dCtx.lineTo(midX, H);
-    dCtx.stroke();
+    dCtx.strokeRect(boxX, 0, boxWidth, H);
     dCtx.setLineDash([]);
 
     // Draw tilt highlight
     if (detectedTilt === 'left') {
       dCtx.fillStyle = 'rgba(83, 216, 251, 0.2)';
-      dCtx.fillRect(0, 0, midX, H);
+      dCtx.fillRect(0, 0, boxX, H);
       dCtx.font = `bold ${Math.floor(H * 0.08)}px Nunito, sans-serif`;
       dCtx.fillStyle = '#53d8fb';
       dCtx.textAlign = 'center';
-      dCtx.fillText('◀', midX * 0.3, H * 0.5);
+      dCtx.fillText('◀', boxX * 0.5, H * 0.5);
     } else if (detectedTilt === 'right') {
+      const rightX = boxX + boxWidth;
       dCtx.fillStyle = 'rgba(255, 90, 95, 0.2)';
-      dCtx.fillRect(midX, 0, midX, H);
+      dCtx.fillRect(rightX, 0, W - rightX, H);
       dCtx.font = `bold ${Math.floor(H * 0.08)}px Nunito, sans-serif`;
       dCtx.fillStyle = '#FF5A5F';
       dCtx.textAlign = 'center';
-      dCtx.fillText('▶', midX * 1.7, H * 0.5);
+      dCtx.fillText('▶', rightX + (W - rightX) / 2, H * 0.5);
     }
 
     animationRef.current = requestAnimationFrame(renderLoop);

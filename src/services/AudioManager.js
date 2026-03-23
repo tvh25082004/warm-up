@@ -14,89 +14,29 @@ class AudioManager {
   }
 
   /**
-   * Create and play background music using Web Audio API oscillators
-   * Generates a simple, cheerful melody programmatically
+   * Play background music from /bgm.mp3
    */
   startBackgroundMusic() {
     if (this.isPlaying) return;
     
-    try {
-      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      this.isPlaying = true;
-      this._playMelody();
-    } catch (e) {
-      console.warn('Audio not supported:', e);
+    if (!this.bgMusic) {
+      this.bgMusic = new Audio('/bgm.mp3');
+      this.bgMusic.loop = true;
+      this.bgMusic.volume = this.volume;
     }
-  }
-
-  _playMelody() {
-    if (!this.isPlaying || !this.audioContext) return;
-
-    // Happy children's melody notes (frequencies in Hz)
-    const melody = [
-      { freq: 523.25, dur: 0.3 }, // C5
-      { freq: 587.33, dur: 0.3 }, // D5
-      { freq: 659.25, dur: 0.3 }, // E5
-      { freq: 523.25, dur: 0.3 }, // C5
-      { freq: 659.25, dur: 0.3 }, // E5
-      { freq: 587.33, dur: 0.3 }, // D5
-      { freq: 523.25, dur: 0.6 }, // C5
-      { freq: 0, dur: 0.3 },      // rest
-      { freq: 587.33, dur: 0.3 }, // D5
-      { freq: 659.25, dur: 0.3 }, // E5
-      { freq: 698.46, dur: 0.3 }, // F5
-      { freq: 659.25, dur: 0.6 }, // E5
-      { freq: 587.33, dur: 0.3 }, // D5
-      { freq: 523.25, dur: 0.6 }, // C5
-      { freq: 0, dur: 0.5 },      // rest
-      { freq: 783.99, dur: 0.3 }, // G5
-      { freq: 659.25, dur: 0.3 }, // E5
-      { freq: 523.25, dur: 0.3 }, // C5
-      { freq: 587.33, dur: 0.3 }, // D5
-      { freq: 523.25, dur: 0.6 }, // C5
-      { freq: 0, dur: 0.8 },      // rest
-    ];
-
-    let time = this.audioContext.currentTime;
-
-    melody.forEach(note => {
-      if (note.freq > 0) {
-        const osc = this.audioContext.createOscillator();
-        const gain = this.audioContext.createGain();
-        
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(note.freq, time);
-        
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(this.volume * 0.15, time + 0.05);
-        gain.gain.linearRampToValueAtTime(this.volume * 0.1, time + note.dur * 0.7);
-        gain.gain.linearRampToValueAtTime(0, time + note.dur);
-        
-        osc.connect(gain);
-        gain.connect(this.audioContext.destination);
-        
-        osc.start(time);
-        osc.stop(time + note.dur);
-      }
-      time += note.dur;
+    
+    this.bgMusic.play().then(() => {
+      this.isPlaying = true;
+    }).catch(e => {
+      console.warn('Audio play failed, maybe user has not interacted yet:', e);
     });
-
-    // Loop the melody
-    const totalDuration = melody.reduce((sum, n) => sum + n.dur, 0) * 1000;
-    this._melodyTimeout = setTimeout(() => {
-      if (this.isPlaying) this._playMelody();
-    }, totalDuration);
   }
 
   stopBackgroundMusic() {
+    if (this.bgMusic) {
+      this.bgMusic.pause();
+    }
     this.isPlaying = false;
-    if (this._melodyTimeout) {
-      clearTimeout(this._melodyTimeout);
-    }
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
   }
 
   /**
