@@ -43,7 +43,6 @@ const VocabMatchGame = () => {
     initGame();
     initHandTracking();
     return () => {
-      audioManager.stopBackgroundMusic();
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
   }, []);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Music } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import audioManager from '../services/AudioManager';
 import '../styles/Game.css';
@@ -30,7 +30,6 @@ const HeadTiltGame = () => {
   const [score, setScore] = useState(0);
   const [feedback, setFeedback] = useState(null);
   const [tiltDirection, setTiltDirection] = useState(null);
-  const [musicOn, setMusicOn] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -93,15 +92,9 @@ const HeadTiltGame = () => {
     };
   }, []);
 
-  const toggleMusic = () => {
-    if (musicOn) audioManager.stopBackgroundMusic();
-    else audioManager.startBackgroundMusic();
-    setMusicOn(!musicOn);
-  };
 
   useEffect(() => {
     return () => {
-      audioManager.stopBackgroundMusic();
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       if (tiltTimerRef.current) clearTimeout(tiltTimerRef.current);
     };
@@ -133,21 +126,28 @@ const HeadTiltGame = () => {
     aCtx.drawImage(video, -W, 0, W, H);
     aCtx.restore();
 
-    // --- Skin detection for face position ---
+    // --- Skin detection for face position (long-range optimized) ---
     const imageData = aCtx.getImageData(0, 0, W, H);
     const data = imageData.data;
-    const faceBottom = Math.floor(H * 0.7);
-    const step = 8;
+    // Scan full height so distant/small face still detected
+    const step = 6; // smaller step = more pixels sampled
 
     let sumX = 0;
     let count = 0;
 
-    for (let y = 0; y < faceBottom; y += step) {
+    for (let y = 0; y < H; y += step) {
       for (let x = 0; x < W; x += step) {
         const idx = (y * W + x) * 4;
         const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        // Skin color heuristic
-        if (r > 95 && g > 40 && b > 20 && r > g && r > b && (r - g) > 15 && r > 150) {
+        // Loosened skin heuristic — works from further away (dimmer, smaller face)
+        const isSkin = (
+          r > 60 && g > 25 && b > 10 &&
+          r > g && r > b &&
+          (r - g) > 10 &&
+          r > 100 &&
+          Math.abs(r - g) > 8
+        );
+        if (isSkin) {
           sumX += x;
           count++;
         }
@@ -155,25 +155,23 @@ const HeadTiltGame = () => {
     }
 
     let detectedTilt = null;
-    if (count > 50) {
+    if (count > 20) {
       const avgX = sumX / count;
-      const normalizedX = avgX / W; // mapped 0.0 to 1.0 (0=left, 1=right on original canvas)
-      
-      // Exponential moving average to smooth out the jitter
-      smoothedXRef.current = smoothedXRef.current * 0.7 + normalizedX * 0.3;
+      const normalizedX = avgX / W; // 0.0 = left edge, 1.0 = right edge
+
+      // Strong smoothing (0.85) — dot moves slowly and stably
+      smoothedXRef.current = smoothedXRef.current * 0.85 + normalizedX * 0.15;
       const smoothedX = smoothedXRef.current;
 
-      // Note: Because the canvas is mirrored horizontally when displaying,
-      // moving left physically means x is near 0 on the canvas.
-      // 0.35 and 0.65 are the thresholds for left/right. Everything in between is "center" (standing still).
-      if (smoothedX < 0.35) {
+      // 0.38–0.62 is safe center zone. Outside = left or right.
+      if (smoothedX < 0.38) {
         detectedTilt = 'left';
-      } else if (smoothedX > 0.65) {
+      } else if (smoothedX > 0.62) {
         detectedTilt = 'right';
       }
     } else {
-      // If no face found, drift back to center slowly
-      smoothedXRef.current = smoothedXRef.current * 0.9 + 0.5 * 0.1;
+      // Drift gently back to center when no face visible
+      smoothedXRef.current = smoothedXRef.current * 0.95 + 0.5 * 0.05;
     }
 
     if (!feedback && !gameOver) {
@@ -187,42 +185,66 @@ const HeadTiltGame = () => {
     dCtx.drawImage(video, -W, 0, W, H);
     dCtx.restore();
 
-    // Draw center deadzone box
-    const boxWidth = W * 0.4; // 40% of screen in the middle
+    // Semi-transparent dark overlay for contrast
+    dCtx.fillStyle = 'rgba(0,0,0,0.15)';
+    dCtx.fillRect(0, 0, W, H);
+
+    // Draw center safe zone
+    const boxWidth = W * 0.24; // narrower safe zone
     const boxX = (W - boxWidth) / 2;
-    dCtx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    dCtx.strokeStyle = 'rgba(255,255,255,0.5)';
     dCtx.lineWidth = 2;
-    dCtx.setLineDash([8, 4]);
+    dCtx.setLineDash([6, 4]);
     dCtx.strokeRect(boxX, 0, boxWidth, H);
     dCtx.setLineDash([]);
 
-    // Draw tilt highlight
+    // Tilt highlight
     if (detectedTilt === 'left') {
-      dCtx.fillStyle = 'rgba(83, 216, 251, 0.2)';
+      dCtx.fillStyle = 'rgba(83, 216, 251, 0.25)';
       dCtx.fillRect(0, 0, boxX, H);
-      dCtx.font = `bold ${Math.floor(H * 0.08)}px Nunito, sans-serif`;
+      dCtx.font = `bold ${Math.floor(H * 0.1)}px Nunito, sans-serif`;
       dCtx.fillStyle = '#53d8fb';
       dCtx.textAlign = 'center';
       dCtx.fillText('◀', boxX * 0.5, H * 0.5);
     } else if (detectedTilt === 'right') {
       const rightX = boxX + boxWidth;
-      dCtx.fillStyle = 'rgba(255, 90, 95, 0.2)';
+      dCtx.fillStyle = 'rgba(255, 90, 95, 0.25)';
       dCtx.fillRect(rightX, 0, W - rightX, H);
-      dCtx.font = `bold ${Math.floor(H * 0.08)}px Nunito, sans-serif`;
+      dCtx.font = `bold ${Math.floor(H * 0.1)}px Nunito, sans-serif`;
       dCtx.fillStyle = '#FF5A5F';
       dCtx.textAlign = 'center';
       dCtx.fillText('▶', rightX + (W - rightX) / 2, H * 0.5);
     }
 
-    // Draw the tracking indicator for the user
-    // Because dCtx is mirrored, smoothedXRef.current * W naturally works out to map exactly point-to-point on the mirrored view.
+    // Draw "follow me" tracking dot — user just needs to keep head on it
+    const dotX = smoothedXRef.current * W;
+    const dotY = H * 0.5;
+    const dotR = 14;
+
+    // Outer glow ring
+    const gradient = dCtx.createRadialGradient(dotX, dotY, dotR * 0.5, dotX, dotY, dotR * 2.5);
+    gradient.addColorStop(0, 'rgba(255, 234, 0, 0.5)');
+    gradient.addColorStop(1, 'rgba(255, 234, 0, 0)');
     dCtx.beginPath();
-    dCtx.arc(smoothedXRef.current * W, H / 2, 8, 0, 2 * Math.PI);
+    dCtx.arc(dotX, dotY, dotR * 2.5, 0, 2 * Math.PI);
+    dCtx.fillStyle = gradient;
+    dCtx.fill();
+
+    // Inner dot
+    dCtx.beginPath();
+    dCtx.arc(dotX, dotY, dotR, 0, 2 * Math.PI);
     dCtx.fillStyle = '#FFEA00';
     dCtx.fill();
-    dCtx.lineWidth = 2;
+    dCtx.lineWidth = 2.5;
     dCtx.strokeStyle = 'white';
     dCtx.stroke();
+
+    // Label
+    dCtx.font = 'bold 12px sans-serif';
+    dCtx.fillStyle = 'white';
+    dCtx.textAlign = 'center';
+    dCtx.fillText('HEAD', dotX, dotY + dotR + 16);
+
 
     animationRef.current = requestAnimationFrame(renderLoop);
   }, [feedback, gameOver]);
@@ -311,11 +333,7 @@ const HeadTiltGame = () => {
           <ArrowLeft size={18} /> Quay lại
         </button>
         <h1 className="tilt-title">Camera Tilt Quiz</h1>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button className="music-btn" onClick={toggleMusic}>
-            <Music size={18} color={musicOn ? '#00A699' : '#aaa'} />
-          </button>
-        </div>
+        <div />
       </div>
 
       {/* Progress */}
