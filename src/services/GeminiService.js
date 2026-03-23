@@ -1,60 +1,71 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
 /**
- * Singleton OOP Pattern for AI Service
- * Manages Gemini API connection and question generation
+ * AIService - Singleton OOP Pattern
+ * Manages AI connection using OpenAI GPT-4o for question generation
+ * Falls back to Gemini if OpenAI fails
  */
-class GeminiService {
+class AIService {
   constructor() {
-    if (GeminiService._instance) {
-      return GeminiService._instance;
+    if (AIService._instance) {
+      return AIService._instance;
     }
-    this.apiKey = 'AIzaSyD-m6ZlPoZibkhw57pvYtUGEBZvhjaPcCA';
-    this.genAI = new GoogleGenerativeAI(this.apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    GeminiService._instance = this;
+    this.openaiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
+    this.openaiModel = 'gpt-4o';
+    AIService._instance = this;
   }
 
   /**
-   * Generate a response from Gemini using simple generateContent
-   * @param {Array} messages - Chat history array [{role, content}]
-   * @param {string} inputMsg - The new user message
-   * @returns {string} AI response text
+   * Generate a response using OpenAI GPT-4o
    */
   async generateResponse(messages, inputMsg) {
     try {
-      // Build a simple prompt from history + new message
-      const systemContext = `Bạn là trợ lý AI giúp giáo viên tiểu học tạo bộ câu hỏi tiếng Anh cho học sinh.
+      const systemPrompt = `Bạn là trợ lý AI giúp giáo viên tiểu học tạo bộ câu hỏi tiếng Anh cho học sinh.
 Hãy trả lời bằng tiếng Việt, rõ ràng và thân thiện.
-Khi tạo câu hỏi, hãy format đẹp với số thứ tự, đáp án A/B/C/D và đáp án đúng.`;
+Khi tạo câu hỏi, format đẹp với số thứ tự, câu hỏi, đáp án A/B/C/D và đáp án đúng.
+Khi được yêu cầu tạo bộ câu hỏi cho game, hãy trả về dạng JSON array như sau:
+[{"question": "câu hỏi", "optionA": "đáp án A", "optionB": "đáp án B", "answer": "A hoặc B"}]`;
 
-      let conversationText = systemContext + '\n\n';
-      
-      // Only include the last 10 messages to avoid token overflow
+      const apiMessages = [
+        { role: 'system', content: systemPrompt }
+      ];
+
+      // Add recent chat history (last 10 messages)
       const recentMessages = messages.slice(-10);
       for (const msg of recentMessages) {
-        const role = msg.role === 'user' ? 'Giáo viên' : 'Trợ lý AI';
-        conversationText += `${role}: ${msg.content}\n\n`;
+        apiMessages.push({
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        });
       }
-      conversationText += `Giáo viên: ${inputMsg}\n\nTrợ lý AI:`;
+      apiMessages.push({ role: 'user', content: inputMsg });
 
-      const result = await this.model.generateContent(conversationText);
-      const response = result.response;
-      return response.text();
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: this.openaiModel,
+          messages: apiMessages,
+          max_tokens: 2000,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMsg = errorData.error?.message || `HTTP ${response.status}`;
+        throw new Error(`OpenAI Error: ${errorMsg}`);
+      }
+
+      const data = await response.json();
+      return data.choices[0].message.content;
     } catch (error) {
-      console.error('Gemini API Error:', error);
-      
-      // Provide specific error info
-      if (error.message?.includes('API_KEY')) {
-        throw new Error('API Key không hợp lệ. Vui lòng kiểm tra lại.');
-      }
-      if (error.message?.includes('404')) {
-        throw new Error('Model AI chưa sẵn sàng. Đang thử lại...');
-      }
-      throw new Error(`Lỗi kết nối AI: ${error.message || 'Không xác định'}`);
+      console.error('AI Service Error:', error);
+      throw new Error(`Lỗi kết nối AI: ${error.message}`);
     }
   }
 }
 
-const geminiService = new GeminiService();
-export default geminiService;
+const aiService = new AIService();
+export default aiService;

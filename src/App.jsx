@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import HeadTiltGame from './pages/HeadTiltGame';
 import VocabMatchGame from './pages/VocabMatchGame';
 import QuestionBuilder from './pages/QuestionBuilder';
+import ImportQuestions from './pages/ImportQuestions';
 import './App.css';
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
         <Route path="/game/headtilt" element={<HeadTiltGame />} />
         <Route path="/game/vocabmatch" element={<VocabMatchGame />} />
         <Route path="/builder" element={<QuestionBuilder />} />
+        <Route path="/import" element={<ImportQuestions />} />
       </Routes>
     </BrowserRouter>
   );

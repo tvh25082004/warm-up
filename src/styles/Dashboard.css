@@ -118,6 +118,14 @@
 .bg-pink { background: linear-gradient(135deg, #FF5A5F, #ff2a85); }
 .bg-teal { background: linear-gradient(135deg, #00A699, #00d2c1); }
 .bg-orange { background: linear-gradient(135deg, #FFC107, #FC642D); }
+.bg-purple { background: linear-gradient(135deg, #9C27B0, #7B1FA2); }
+
+.section-title {
+  font-family: 'Nunito', 'Comic Sans MS', cursive;
+  color: var(--quaternary);
+  margin: 30px 0 15px;
+  font-size: 1.4rem;
+}
 
 .option-card h3 {
   font-size: 1.5rem;

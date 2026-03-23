@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Camera, Gamepad2, LogOut } from 'lucide-react';
+import { BookOpen, Camera, Gamepad2, LogOut, FileUp } from 'lucide-react';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -48,6 +48,8 @@ const Dashboard = () => {
           <p>Hôm nay chúng ta sẽ tổ chức hoạt động nào cho các bé đây?</p>
         </motion.div>
 
+        {/* Section: Games */}
+        <h2 className="section-title">🎮 Chọn Trò Chơi</h2>
         <div className="options-grid">
           <motion.div 
             className="option-card game-card glass-panel"
@@ -72,7 +74,11 @@ const Dashboard = () => {
             <h3>Ghép Từ Vựng</h3>
             <p>Trò chơi kéo thả hoặc chạm để ghép nối các cặp từ vựng chính xác.</p>
           </motion.div>
+        </div>
 
+        {/* Section: Build Questions */}
+        <h2 className="section-title">📝 Xây Dựng Bộ Câu Hỏi</h2>
+        <div className="options-grid">
           <motion.div 
             className="option-card builder-card glass-panel"
             whileHover={{ scale: 1.03, y: -5 }}
@@ -81,8 +87,20 @@ const Dashboard = () => {
             <div className="icon-wrapper bg-orange">
               <BookOpen size={40} color="white" />
             </div>
-            <h3>Tạo Bộ Câu Hỏi (AI)</h3>
-            <p>Sử dụng AI để tự động tạo bộ câu hỏi trắc nghiệm hoặc từ vựng cho bài học.</p>
+            <h3>Tạo Đề Bằng AI</h3>
+            <p>Chat với AI để tự động tạo bộ câu hỏi trắc nghiệm cho bài học.</p>
+          </motion.div>
+
+          <motion.div 
+            className="option-card builder-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/import')}
+          >
+            <div className="icon-wrapper bg-purple">
+              <FileUp size={40} color="white" />
+            </div>
+            <h3>Nhập Đề Từ File / Text</h3>
+            <p>Tải file DOCX, TXT hoặc nhập trực tiếp nội dung để tạo bộ câu hỏi (không cần AI).</p>
           </motion.div>
         </div>
       </main>
