@@ -86,6 +86,30 @@ const Dashboard = () => {
             <h3>Mario River Quiz</h3>
             <p>Mario chạy qua sông, gặp chướng ngại vật thì dừng trả lời câu hỏi. Nói to đáp án A/B/C/D qua mic!</p>
           </motion.div>
+
+          <motion.div
+            className="option-card game-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/game/select?game=flappybird')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#71C5CF,#4CAF50)' }}>
+              <span style={{ fontSize: 36 }}>🐦</span>
+            </div>
+            <h3>Flappy Bird Quiz</h3>
+            <p>Chim bay lơ lửng trên không trung, gặp cột thì dùng giọng nói A/B/C/D để vượt chướng ngại vật!</p>
+          </motion.div>
+
+          <motion.div
+            className="option-card game-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/game/select?game=treasurequest')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#FFD700,#FFA000)' }}>
+              <span style={{ fontSize: 36 }}>💎</span>
+            </div>
+            <h3>Treasure Quest</h3>
+            <p>Hành trình tìm kho báu qua 4 vùng đất bí ẩn. Giải đố từ vựng để mở rương và nhận quà!</p>
+          </motion.div>
         </div>
 
         {/* Section: Build Questions */}

@@ -8,6 +8,8 @@ import QuestionBuilder from './pages/QuestionBuilder';
 import ImportQuestions from './pages/ImportQuestions';
 import GameSetSelector from './pages/GameSetSelector';
 import MarioRiverGame from './pages/MarioRiverGame';
+import FlappyBirdGame from './pages/FlappyBirdGame';
+import TreasureQuest from './pages/TreasureQuest';
 import audioManager from './services/AudioManager';
 import './App.css';
 
@@ -46,6 +48,8 @@ function App() {
         <Route path="/game/headtilt" element={<HeadTiltGame />} />
         <Route path="/game/vocabmatch" element={<VocabMatchGame />} />
         <Route path="/game/mario" element={<MarioRiverGame />} />
+        <Route path="/game/flappybird" element={<FlappyBirdGame />} />
+        <Route path="/game/treasure" element={<TreasureQuest />} />
         <Route path="/builder" element={<QuestionBuilder />} />
         <Route path="/import" element={<ImportQuestions />} />
       </Routes>
