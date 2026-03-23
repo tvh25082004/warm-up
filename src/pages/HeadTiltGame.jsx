@@ -43,6 +43,7 @@ const HeadTiltGame = () => {
   const tiltTimerRef = useRef(null);
   const processingRef = useRef(false);
   const streamRef = useRef(null);
+  const smoothedXRef = useRef(0.5);
 
   // Load questions
   useEffect(() => {
@@ -135,10 +136,11 @@ const HeadTiltGame = () => {
     // --- Skin detection for face position ---
     const imageData = aCtx.getImageData(0, 0, W, H);
     const data = imageData.data;
-    const midX = W / 2;
-    let leftCount = 0, rightCount = 0;
     const faceBottom = Math.floor(H * 0.7);
     const step = 8;
+
+    let sumX = 0;
+    let count = 0;
 
     for (let y = 0; y < faceBottom; y += step) {
       for (let x = 0; x < W; x += step) {
@@ -146,18 +148,32 @@ const HeadTiltGame = () => {
         const r = data[idx], g = data[idx + 1], b = data[idx + 2];
         // Skin color heuristic
         if (r > 95 && g > 40 && b > 20 && r > g && r > b && (r - g) > 15 && r > 150) {
-          if (x < midX) leftCount++; else rightCount++;
+          sumX += x;
+          count++;
         }
       }
     }
 
-    const total = leftCount + rightCount;
     let detectedTilt = null;
-    if (total > 30) {
-      const leftRatio = leftCount / total;
-      // Require 75% of face pixels on one side to trigger -> significant tilt
-      if (leftRatio > 0.75) detectedTilt = 'left';
-      else if (leftRatio < 0.25) detectedTilt = 'right';
+    if (count > 50) {
+      const avgX = sumX / count;
+      const normalizedX = avgX / W; // mapped 0.0 to 1.0 (0=left, 1=right on original canvas)
+      
+      // Exponential moving average to smooth out the jitter
+      smoothedXRef.current = smoothedXRef.current * 0.7 + normalizedX * 0.3;
+      const smoothedX = smoothedXRef.current;
+
+      // Note: Because the canvas is mirrored horizontally when displaying,
+      // moving left physically means x is near 0 on the canvas.
+      // 0.35 and 0.65 are the thresholds for left/right. Everything in between is "center" (standing still).
+      if (smoothedX < 0.35) {
+        detectedTilt = 'left';
+      } else if (smoothedX > 0.65) {
+        detectedTilt = 'right';
+      }
+    } else {
+      // If no face found, drift back to center slowly
+      smoothedXRef.current = smoothedXRef.current * 0.9 + 0.5 * 0.1;
     }
 
     if (!feedback && !gameOver) {
@@ -197,6 +213,16 @@ const HeadTiltGame = () => {
       dCtx.textAlign = 'center';
       dCtx.fillText('▶', rightX + (W - rightX) / 2, H * 0.5);
     }
+
+    // Draw the tracking indicator for the user
+    // Because dCtx is mirrored, smoothedXRef.current * W naturally works out to map exactly point-to-point on the mirrored view.
+    dCtx.beginPath();
+    dCtx.arc(smoothedXRef.current * W, H / 2, 8, 0, 2 * Math.PI);
+    dCtx.fillStyle = '#FFEA00';
+    dCtx.fill();
+    dCtx.lineWidth = 2;
+    dCtx.strokeStyle = 'white';
+    dCtx.stroke();
 
     animationRef.current = requestAnimationFrame(renderLoop);
   }, [feedback, gameOver]);

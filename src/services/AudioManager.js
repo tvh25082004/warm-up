@@ -20,7 +20,7 @@ class AudioManager {
     if (this.isPlaying) return;
     
     if (!this.bgMusic) {
-      this.bgMusic = new Audio('/bgm.mp3');
+      this.bgMusic = new Audio('/happy-music.mp3');
       this.bgMusic.loop = true;
       this.bgMusic.volume = this.volume;
     }
