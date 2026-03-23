@@ -21,6 +21,7 @@ const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
 
 const VocabMatchGame = () => {
   const navigate = useNavigate();
+  const [currentPairs, setCurrentPairs] = useState(VOCAB_PAIRS);
   const [leftCards, setLeftCards] = useState([]);
   const [rightCards, setRightCards] = useState([]);
   const [selectedLeft, setSelectedLeft] = useState(null);
@@ -46,8 +47,25 @@ const VocabMatchGame = () => {
   };
 
   const initGame = () => {
-    setLeftCards(shuffleArray(VOCAB_PAIRS.map(p => ({ id: p.id, text: p.left, emoji: p.emoji }))));
-    setRightCards(shuffleArray(VOCAB_PAIRS.map(p => ({ id: p.id, text: p.right, emoji: p.emoji }))));
+    let pairs = VOCAB_PAIRS;
+    try {
+      const stored = localStorage.getItem('active_vocab_pairs');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          pairs = parsed.map((p, i) => ({
+            id: i + 1,
+            left: p.left,
+            right: p.right,
+            emoji: p.emoji || '✨'
+          }));
+        }
+      }
+    } catch (e) {}
+
+    setCurrentPairs(pairs);
+    setLeftCards(shuffleArray(pairs.map(p => ({ id: p.id, text: p.left, emoji: p.emoji }))));
+    setRightCards(shuffleArray(pairs.map(p => ({ id: p.id, text: p.right, emoji: p.emoji }))));
     setMatchedIds([]);
     setSelectedLeft(null);
     setSelectedRight(null);
@@ -92,7 +110,7 @@ const VocabMatchGame = () => {
     }
   }, [selectedLeft, selectedRight]);
 
-  const allMatched = matchedIds.length === VOCAB_PAIRS.length && VOCAB_PAIRS.length > 0;
+  const allMatched = matchedIds.length === currentPairs.length && currentPairs.length > 0;
   
   useEffect(() => {
     if (allMatched) {
@@ -237,7 +255,7 @@ const VocabMatchGame = () => {
         {/* Progress indicator */}
         {!allMatched && (
           <div className="match-progress">
-            {VOCAB_PAIRS.map((_, i) => (
+            {currentPairs.map((_, i) => (
               <motion.div 
                 key={i}
                 className={`progress-dot ${matchedIds.length > i ? 'filled' : ''}`}

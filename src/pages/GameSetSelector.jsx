@@ -10,9 +10,24 @@ import '../styles/GameSetSelector.css';
  * QuestionParser (same as ImportQuestions)
  */
 class QuestionParser {
-  static parseText(text) {
+  static parseText(text, gameType = 'headtilt') {
     const questions = [];
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    if (gameType === 'vocabmatch') {
+      for (let i = 0; i < lines.length; i++) {
+        const parts = lines[i].split('-');
+        if (parts.length >= 2) {
+          questions.push({
+            left: parts[0].trim(),
+            right: parts.slice(1).join('-').trim(),
+            emoji: '✨' // default emoji
+          });
+        }
+      }
+      return questions;
+    }
+
     let currentQ = null;
 
     for (let i = 0; i < lines.length; i++) {
@@ -68,6 +83,10 @@ class QuestionParser {
 
 const GameSetSelector = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const gameType = searchParams.get('game') || 'headtilt';
+  const isVocab = gameType === 'vocabmatch';
+
   const [tab, setTab] = useState('saved'); // 'saved' | 'ai' | 'manual' | 'upload'
   const [savedSets, setSavedSets] = useState(() => {
     return JSON.parse(localStorage.getItem('question_sets') || '[]');
@@ -83,8 +102,13 @@ const GameSetSelector = () => {
 
   const launchGame = (questions) => {
     if (!questions || questions.length === 0) return alert('Bộ đề trống!');
-    localStorage.setItem('active_game_questions', JSON.stringify(questions));
-    navigate('/game/headtilt');
+    if (isVocab) {
+      localStorage.setItem('active_vocab_pairs', JSON.stringify(questions));
+      navigate('/game/vocabmatch');
+    } else {
+      localStorage.setItem('active_game_questions', JSON.stringify(questions));
+      navigate('/game/headtilt');
+    }
   };
 
   const handleFileUpload = async (e) => {
@@ -105,30 +129,38 @@ const GameSetSelector = () => {
   };
 
   const parseAndPreview = (text) => {
-    const qs = QuestionParser.parseText(text);
+    const qs = QuestionParser.parseText(text, gameType);
     if (qs.length === 0) return alert('Không tìm thấy câu hỏi. Kiểm tra định dạng!');
     setPreview(qs);
   };
 
   const generateWithAI = async () => {
-    if (!aiTopic.trim()) return alert('Nhập chủ đề câu hỏi!');
+    if (!aiTopic.trim()) return alert('Nhập chủ đề!');
     setIsGenerating(true);
     try {
-      const prompt = `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}".
-Mỗi câu có 2 đáp án A và B. Trả về đúng JSON array theo format:
-[{"question": "...", "optionA": "...", "optionB": "...", "answer": "A hoặc B"}]
-Chỉ trả về JSON, không thêm giải thích.`;
+      const prompt = isVocab 
+        ? `Tạo ${aiCount} từ vựng tiếng Anh về chủ đề: "${aiTopic}". Trả về JSON array: [{"left": "English word", "right": "Nghĩa tiếng Việt", "emoji": "icon"}]`
+        : `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}". Mỗi câu có 2 đáp án A và B. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "answer": "A hoặc B"}]`;
       const response = await aiService.generateResponse([], prompt);
       const jsonMatch = response.match(/\[[\s\S]*\]/);
       if (!jsonMatch) throw new Error('AI không trả về JSON hợp lệ');
       const qs = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(qs) || qs.length === 0) throw new Error('Bộ câu hỏi rỗng');
-      setPreview(qs.map(q => ({
-        question: q.question || '',
-        optionA: q.optionA || q.a || '',
-        optionB: q.optionB || q.b || '',
-        answer: (q.answer || 'A').toUpperCase()
-      })));
+      if (!Array.isArray(qs) || qs.length === 0) throw new Error('Bộ câu rỗng');
+      
+      if (isVocab) {
+        setPreview(qs.map(q => ({
+          left: q.left || q.word || q.tiếng_Anh || '',
+          right: q.right || q.meaning || q.tiếng_Việt || '',
+          emoji: q.emoji || '✨'
+        })));
+      } else {
+        setPreview(qs.map(q => ({
+          question: q.question || '',
+          optionA: q.optionA || q.a || '',
+          optionB: q.optionB || q.b || '',
+          answer: (q.answer || 'A').toUpperCase()
+        })));
+      }
     } catch (err) {
       alert(`Lỗi tạo AI: ${err.message}`);
     } finally {
@@ -159,7 +191,7 @@ Chỉ trả về JSON, không thêm giải thích.`;
         <button className="back-btn" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={20} /> Quay lại
         </button>
-        <h2>🎯 Chọn Bộ Câu Hỏi Để Chơi</h2>
+        <h2>🎯 Chọn Bộ {isVocab ? 'Từ Vựng' : 'Câu Hỏi'} Để Chơi</h2>
         <div style={{ width: 100 }} />
       </div>
 
@@ -198,7 +230,11 @@ Chỉ trả về JSON, không thêm giải thích.`;
             <div className="gss-preview-list">
               {preview.slice(0, 5).map((q, i) => (
                 <div key={i} className="preview-q">
-                  <b>{i + 1}.</b> {q.question} → <span className="ans-tag">✓ {q.answer === 'A' ? q.optionA : q.optionB}</span>
+                  {isVocab ? (
+                    <>{q.emoji} <b>{q.left}</b> - {q.right}</>
+                  ) : (
+                    <><b>{i + 1}.</b> {q.question} → <span className="ans-tag">✓ {q.answer === 'A' ? q.optionA : q.optionB}</span></>
+                  )}
                 </div>
               ))}
               {preview.length > 5 && <div className="more-qs">+ {preview.length - 5} câu nữa...</div>}
@@ -273,14 +309,17 @@ Chỉ trả về JSON, không thêm giải thích.`;
             <h3>✏️ Nhập câu hỏi thủ công</h3>
             <div className="format-hint">
               <b>Định dạng:</b><br/>
-              <code>1. Câu hỏi a) Đáp A b) Đáp B Đáp án: A</code><br/>
-              <code>câu hỏi|Đáp A|Đáp B|A</code>
+              {isVocab ? (
+                <code>Apple - Quả táo<br/>Dog - Con chó</code>
+              ) : (
+                <><code>1. Câu hỏi a) Đáp A b) Đáp B Đáp án: A</code><br/><code>câu hỏi|Đáp A|Đáp B|A</code></>
+              )}
             </div>
             <textarea
               className="manual-textarea"
               value={manualText}
               onChange={e => setManualText(e.target.value)}
-              placeholder="Nhập câu hỏi theo định dạng trên..."
+              placeholder={isVocab ? "Nhập từ vựng theo định dạng 'Từ tiếng Anh - Từ tiếng Việt'..." : "Nhập câu hỏi theo định dạng trên..."}
               rows={12}
             />
             <motion.button

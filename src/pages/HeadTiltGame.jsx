@@ -241,7 +241,8 @@ const HeadTiltGame = () => {
     if (isCorrect) {
       setScore(s => s + 1);
       audioManager.playCorrectSound();
-      confetti({ particleCount: 120, spread: 70, origin: { y: 0.5 }, colors: ['#00A699', '#F4C03B', '#FF5A5F', '#9C27B0'] });
+      confetti({ particleCount: 150, spread: 80, origin: { x: 0, y: 0.8 }, colors: ['#00A699', '#F4C03B', '#FF5A5F', '#9C27B0'], angle: 60, velocity: 50 });
+      confetti({ particleCount: 150, spread: 80, origin: { x: 1, y: 0.8 }, colors: ['#00A699', '#F4C03B', '#FF5A5F', '#9C27B0'], angle: 120, velocity: 50 });
     } else {
       audioManager.playWrongSound();
     }
@@ -314,8 +315,26 @@ const HeadTiltGame = () => {
         </motion.div>
       ) : (
         <div className="tilt-body">
-          {/* Question + Options layout */}
-          <div className="tilt-question-area">
+          {/* Question on top */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentQIndex}
+              className="tilt-question-card-top"
+              initial={{ y: -30, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -30, opacity: 0 }}
+            >
+              <p className="tilt-question-text">{question.question}</p>
+              {cameraError && (
+                <p style={{ fontSize: '0.8rem', color: '#888', marginTop: 10 }}>
+                  ⚠️ Camera không khả dụng. Dùng phím ← →
+                </p>
+              )}
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Main Interaction Area */}
+          <div className="tilt-main-interaction">
             {/* Left option */}
             <motion.button
               className={`tilt-option tilt-option-left 
@@ -327,25 +346,44 @@ const HeadTiltGame = () => {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
+              <div className="opt-label">A</div>
               {question.optionA}
             </motion.button>
 
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentQIndex}
-                className="tilt-question-card"
-                initial={{ y: 30, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -30, opacity: 0 }}
-              >
-                <p className="tilt-question-text">{question.question}</p>
-                {cameraError && (
-                  <p style={{ fontSize: '0.8rem', color: '#888', marginTop: 10 }}>
-                    ⚠️ Camera không khả dụng. Dùng phím ← →
-                  </p>
+            {/* Camera preview - CENTERED */}
+            {!cameraError ? (
+              <div className="tilt-camera-center">
+                <video
+                  ref={videoRef}
+                  style={{ display: 'none' }}
+                  muted
+                  playsInline
+                  autoPlay
+                />
+                <canvas
+                  ref={displayCanvasRef}
+                  style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
+                />
+                {tiltDirection && !feedback && (
+                  <div className={`tilt-cam-indicator-center ${tiltDirection}`}>
+                    {tiltDirection === 'left' ? '◀' : '▶'}
+                  </div>
                 )}
-              </motion.div>
-            </AnimatePresence>
+                {tiltDirection && !feedback && (
+                  <motion.div
+                    className="tilt-hold-bar"
+                    initial={{ width: '0%' }}
+                    animate={{ width: '100%' }}
+                    transition={{ duration: 1.2, ease: 'linear' }}
+                    key={tiltDirection}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="tilt-camera-center error-placeholder">
+                <span>Camera Offline</span>
+              </div>
+            )}
 
             {/* Right option */}
             <motion.button
@@ -358,6 +396,7 @@ const HeadTiltGame = () => {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
+              <div className="opt-label">B</div>
               {question.optionB}
             </motion.button>
           </div>
@@ -366,43 +405,10 @@ const HeadTiltGame = () => {
           <AnimatePresence>
             {feedback && (
               <motion.div className="tilt-feedback" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0, opacity: 0 }}>
-                {feedback === 'correct' ? '✅ Chính xác!' : '❌ Sai rồi!'}
+                {feedback === 'correct' ? '✨ Correct!' : '❌ Incorrect!'}
               </motion.div>
             )}
           </AnimatePresence>
-
-          {/* Camera preview (display canvas) - bottom right */}
-          {!cameraError && (
-            <div className="tilt-camera-preview">
-              {/* Hidden actual video element (needed for canvas to read from) */}
-              <video
-                ref={videoRef}
-                style={{ display: 'none' }}
-                muted
-                playsInline
-                autoPlay
-              />
-              {/* Visible canvas with overlays */}
-              <canvas
-                ref={displayCanvasRef}
-                style={{ width: 200, height: 150, display: 'block', borderRadius: 12 }}
-              />
-              {tiltDirection && !feedback && (
-                <div className={`tilt-cam-indicator ${tiltDirection}`}>
-                  {tiltDirection === 'left' ? '◀' : '▶'}
-                </div>
-              )}
-              {tiltDirection && !feedback && (
-                <motion.div
-                  className="tilt-hold-bar"
-                  initial={{ width: '0%' }}
-                  animate={{ width: '100%' }}
-                  transition={{ duration: 1.2, ease: 'linear' }}
-                  key={tiltDirection}
-                />
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>

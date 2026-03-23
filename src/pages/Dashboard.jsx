@@ -66,7 +66,7 @@ const Dashboard = () => {
           <motion.div 
             className="option-card game-card glass-panel"
             whileHover={{ scale: 1.03, y: -5 }}
-            onClick={() => navigate('/game/vocabmatch')}
+            onClick={() => navigate('/game/select?game=vocabmatch')}
           >
             <div className="icon-wrapper bg-teal">
               <Gamepad2 size={40} color="white" />
