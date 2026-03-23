@@ -54,7 +54,7 @@ const Dashboard = () => {
           <motion.div 
             className="option-card game-card glass-panel"
             whileHover={{ scale: 1.03, y: -5 }}
-            onClick={() => navigate('/game/headtilt')}
+            onClick={() => navigate('/game/select')}
           >
             <div className="icon-wrapper bg-pink">
               <Camera size={40} color="white" />

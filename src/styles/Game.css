@@ -571,3 +571,12 @@
 .tilt-home-btn:hover {
   background: rgba(255,255,255,0.2);
 }
+
+/* tilt hold bar */
+.tilt-hold-bar {
+  position: absolute;
+  bottom: 0; left: 0;
+  height: 4px;
+  background: #53d8fb;
+  border-radius: 0 0 0 12px;
+}
