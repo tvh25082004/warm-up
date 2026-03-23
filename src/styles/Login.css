@@ -1,0 +1,152 @@
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 450px;
+  padding: 40px;
+  position: relative;
+  z-index: 10;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.login-header h1 {
+  font-size: 3rem;
+  margin: 10px 0;
+  font-family: 'Comic Sans MS', cursive, sans-serif;
+  letter-spacing: 2px;
+}
+
+.login-header p {
+  color: var(--quaternary);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.bouncing-icon {
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-15px); }
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-group label {
+  font-weight: 700;
+  color: var(--quaternary);
+  font-size: 0.95rem;
+  margin-left: 5px;
+}
+
+.input-group input {
+  padding: 15px 20px;
+  border-radius: 15px;
+  border: 2px solid rgba(255, 90, 95, 0.2);
+  font-size: 1rem;
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.9);
+  transition: all 0.3s ease;
+}
+
+.input-group input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(255, 90, 95, 0.1);
+}
+
+.otp-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.otp-input-wrapper input {
+  width: 100%;
+  padding-left: 45px;
+}
+
+.input-icon {
+  position: absolute;
+  left: 15px;
+  color: var(--primary);
+}
+
+.error-message {
+  color: #d32f2f;
+  background: #ffcdd2;
+  padding: 10px 15px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.login-button {
+  background: linear-gradient(135deg, #FF5A5F 0%, #FC642D 100%);
+  color: white;
+  padding: 16px;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  box-shadow: 0 4px 15px rgba(252, 100, 45, 0.4);
+}
+
+/* Floating Shapes */
+.floating-shape {
+  position: absolute;
+  border-radius: 50%;
+  z-index: 1;
+  opacity: 0.6;
+}
+
+.shape-1 {
+  width: 150px;
+  height: 150px;
+  background: linear-gradient(135deg, #00A699, #00d2c1);
+  top: 10%;
+  left: 10%;
+}
+
+.shape-2 {
+  width: 200px;
+  height: 200px;
+  background: linear-gradient(135deg, #FFC107, #FF9800);
+  bottom: 5%;
+  right: 5%;
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+}
+
+.shape-3 {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(135deg, #E91E63, #9C27B0);
+  top: 40%;
+  right: 15%;
+  border-radius: 64% 36% 27% 73% / 55% 58% 42% 45%;
+}

@@ -1,0 +1,59 @@
+:root {
+  --primary: #FF5A5F;
+  --secondary: #00A699;
+  --tertiary: #FC642D;
+  --quaternary: #484848;
+  --background: #f7f9fc;
+  --text: #222222;
+  --white: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.1);
+  --border-radius: 20px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Nunito', 'Comic Sans MS', 'Inter', system-ui, sans-serif;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text);
+  overflow-x: hidden;
+  background-image: radial-gradient(circle at top right, #ffecd2 0%, #fcb69f 100%);
+  min-height: 100vh;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: var(--border-radius);
+  font-weight: bold;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px var(--shadow);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--border-radius);
+  box-shadow: 0 8px 32px 0 var(--shadow);
+}
+
+.title-text {
+  background: linear-gradient(45deg, #FF5A5F, #FC642D);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+}
