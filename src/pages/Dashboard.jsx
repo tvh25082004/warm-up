@@ -74,6 +74,18 @@ const Dashboard = () => {
             <h3>Ghép Từ Vựng</h3>
             <p>Trò chơi kéo thả hoặc chạm để ghép nối các cặp từ vựng chính xác.</p>
           </motion.div>
+
+          <motion.div
+            className="option-card game-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/game/select?game=mario')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#E53935,#FB8C00)' }}>
+              <span style={{ fontSize: 36 }}>🍄</span>
+            </div>
+            <h3>Mario River Quiz</h3>
+            <p>Mario chạy qua sông, gặp chướng ngại vật thì dừng trả lời câu hỏi. Nói to đáp án A/B/C/D qua mic!</p>
+          </motion.div>
         </div>
 
         {/* Section: Build Questions */}

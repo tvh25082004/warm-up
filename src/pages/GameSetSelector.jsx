@@ -86,6 +86,7 @@ const GameSetSelector = () => {
   const [searchParams] = useSearchParams();
   const gameType = searchParams.get('game') || 'headtilt';
   const isVocab = gameType === 'vocabmatch';
+  const isMario = gameType === 'mario';
 
   const [tab, setTab] = useState('saved'); // 'saved' | 'ai' | 'manual' | 'upload'
   const [savedSets, setSavedSets] = useState(() => {
@@ -105,6 +106,9 @@ const GameSetSelector = () => {
     if (isVocab) {
       localStorage.setItem('active_vocab_pairs', JSON.stringify(questions));
       navigate('/game/vocabmatch');
+    } else if (isMario) {
+      localStorage.setItem('active_mario_questions', JSON.stringify(questions));
+      navigate('/game/mario');
     } else {
       localStorage.setItem('active_game_questions', JSON.stringify(questions));
       navigate('/game/headtilt');
@@ -140,6 +144,8 @@ const GameSetSelector = () => {
     try {
       const prompt = isVocab 
         ? `Tạo ${aiCount} từ vựng tiếng Anh về chủ đề: "${aiTopic}". Trả về JSON array: [{"left": "English word", "right": "Nghĩa tiếng Việt", "emoji": "icon"}]`
+        : isMario
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D"}]`
         : `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}". Mỗi câu có 2 đáp án A và B. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "answer": "A hoặc B"}]`;
       const response = await aiService.generateResponse([], prompt);
       const jsonMatch = response.match(/\[[\s\S]*\]/);
@@ -158,6 +164,8 @@ const GameSetSelector = () => {
           question: q.question || '',
           optionA: q.optionA || q.a || '',
           optionB: q.optionB || q.b || '',
+          ...(q.optionC ? { optionC: q.optionC } : {}),
+          ...(q.optionD ? { optionD: q.optionD } : {}),
           answer: (q.answer || 'A').toUpperCase()
         })));
       }
@@ -169,7 +177,7 @@ const GameSetSelector = () => {
   };
 
   const savePreview = () => {
-    const name = aiTopic || 'Bộ đề ' + new Date().toLocaleDateString('vi-VN');
+    const name = aiTopic || fileName || 'Bộ đề ' + new Date().toLocaleDateString('vi-VN');
     const set = { id: Date.now(), name, questions: preview };
     const sets = [...savedSets, set];
     localStorage.setItem('question_sets', JSON.stringify(sets));
@@ -191,7 +199,7 @@ const GameSetSelector = () => {
         <button className="back-btn" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={20} /> Quay lại
         </button>
-        <h2>🎯 Chọn Bộ {isVocab ? 'Từ Vựng' : 'Câu Hỏi'} Để Chơi</h2>
+        <h2>🎯 Chọn Bộ {isVocab ? 'Từ Vựng' : isMario ? 'Câu Hỏi Mario' : 'Câu Hỏi'} Để Chơi</h2>
         <div style={{ width: 100 }} />
       </div>
 

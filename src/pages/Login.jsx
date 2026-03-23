@@ -31,13 +31,13 @@ const Login = () => {
 
   return (
     <div className="login-container">
-      <motion.div 
+      <motion.div
         className="login-card glass-panel"
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', bounce: 0.5, duration: 0.8 }}
       >
-        <motion.div 
+        <motion.div
           className="login-header"
           initial={{ y: -50 }}
           animate={{ y: 0 }}
@@ -51,23 +51,23 @@ const Login = () => {
         <form onSubmit={handleLogin} className="login-form">
           <div className="input-group">
             <label>Tên đăng nhập</label>
-            <input 
-              type="text" 
-              placeholder="Ví dụ: tranyennhi" 
+            <input
+              type="text"
+              placeholder="Ví dụ: Trần Yến Nhi"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              required 
+              required
             />
           </div>
-          
+
           <div className="input-group">
             <label>Mật khẩu</label>
-            <input 
-              type="password" 
-              placeholder="Nhập mật khẩu" 
+            <input
+              type="password"
+              placeholder="Nhập mật khẩu"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required 
+              required
             />
           </div>
 
@@ -75,18 +75,18 @@ const Login = () => {
             <label>Mã trường (OTP)</label>
             <div className="otp-input-wrapper">
               <Lock size={20} className="input-icon" />
-              <input 
-                type="text" 
-                placeholder="Ví dụ: 1997" 
+              <input
+                type="text"
+                placeholder="Ví dụ: 2004"
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
-                required 
+                required
               />
             </div>
           </div>
 
           {error && (
-            <motion.p 
+            <motion.p
               className="error-message"
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -95,8 +95,8 @@ const Login = () => {
             </motion.p>
           )}
 
-          <motion.button 
-            type="submit" 
+          <motion.button
+            type="submit"
             className="login-button"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}

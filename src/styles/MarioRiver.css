@@ -1,0 +1,114 @@
+/* MarioRiver.css */
+.mario-wrapper { position: fixed; inset: 0; overflow: hidden; font-family: 'Nunito', 'Segoe UI', sans-serif; }
+.mario-canvas { display: block; width: 100%; height: 100%; }
+
+.mario-back-btn {
+  position: fixed; top: 14px; left: 14px; z-index: 100;
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px; background: rgba(0,0,0,0.5); color: white;
+  border: none; border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: 600;
+  backdrop-filter: blur(4px); transition: background 0.2s;
+}
+.mario-back-btn:hover { background: rgba(0,0,0,0.75); }
+
+/* ---- Question Modal ---- */
+.mario-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.52); backdrop-filter: blur(5px);
+  animation: mFadeIn 0.25s ease;
+}
+@keyframes mFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mSlideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(10px); } 60% { transform: translateX(-7px); } 80% { transform: translateX(7px); } }
+@keyframes mpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(233,30,99,.45); } 50% { box-shadow: 0 0 0 14px rgba(233,30,99,0); } }
+
+.mario-modal {
+  background: white; border-radius: 22px; padding: 28px 30px;
+  max-width: 560px; width: 93%;
+  box-shadow: 0 24px 70px rgba(0,0,0,.45);
+  animation: mSlideUp 0.35s cubic-bezier(.16,1,.3,1);
+  position: relative;
+}
+.mario-modal.shake { animation: shake 0.42s ease; }
+
+.mario-feedback {
+  position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+  padding: 7px 22px; border-radius: 20px; font-size: 14px; font-weight: 700;
+  white-space: nowrap; animation: mSlideUp 0.25s ease;
+}
+.mario-feedback.correct { background: #4CAF50; color: white; }
+.mario-feedback.wrong { background: #E53935; color: white; }
+
+.mario-q-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.mario-badge { background: #7B1FA2; color: white; padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; }
+.mario-pipe-label { font-size: 13px; color: #388E3C; font-weight: 700; }
+
+.mario-q-text {
+  font-size: 1.22rem; font-weight: 700; color: #1a1a2e;
+  margin: 0 0 18px; line-height: 1.55; text-align: center;
+}
+
+.mario-opts {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-bottom: 15px;
+}
+
+.mario-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 14px; border: none; border-radius: 13px;
+  cursor: pointer; font-size: 15px; font-weight: 700; color: white;
+  text-align: left; transition: all 0.15s;
+}
+.mario-opt:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.1); }
+.mario-opt:active:not(:disabled) { transform: scale(0.96); }
+.mario-opt:disabled { opacity: 0.65; cursor: not-allowed; }
+.opt-a { background: linear-gradient(135deg, #E53935, #C62828); }
+.opt-b { background: linear-gradient(135deg, #1E88E5, #1565C0); }
+.opt-c { background: linear-gradient(135deg, #43A047, #2E7D32); }
+.opt-d { background: linear-gradient(135deg, #FB8C00, #E65100); }
+
+.opt-key {
+  min-width: 28px; height: 28px; background: rgba(255,255,255,0.28);
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0;
+}
+
+.mario-voice-row { display: flex; justify-content: center; }
+.mario-mic-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 24px; background: linear-gradient(135deg, #7B1FA2, #E91E63);
+  color: white; border: none; border-radius: 24px;
+  cursor: pointer; font-size: 14px; font-weight: 700; transition: all 0.2s;
+}
+.mario-mic-btn:hover:not(:disabled) { transform: scale(1.04); }
+.mario-mic-btn.listening { background: linear-gradient(135deg, #E91E63, #FF5722); animation: mpulse 1s infinite; }
+.mario-mic-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Victory ---- */
+.mario-victory {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg,rgba(33,150,243,.82),rgba(156,39,176,.82));
+  backdrop-filter: blur(7px);
+}
+.mario-victory-card {
+  background: white; border-radius: 26px; padding: 46px 38px;
+  text-align: center; max-width: 420px; width: 90%;
+  box-shadow: 0 32px 80px rgba(0,0,0,.36);
+  animation: mSlideUp 0.5s cubic-bezier(.16,1,.3,1);
+}
+.mario-victory-card h1 { font-size: 2rem; color: #7B1FA2; margin: 8px 0 6px; }
+.mario-victory-card p { color: #555; margin: 4px 0; }
+.v-score { font-size: 1.4rem; font-weight: 700; color: #E53935; margin-top: 10px; }
+.v-actions { display: flex; gap: 12px; justify-content: center; margin-top: 22px; }
+.v-replay {
+  display: flex; align-items: center; gap: 6px;
+  padding: 12px 22px; background: linear-gradient(135deg, #7B1FA2, #E91E63);
+  color: white; border: none; border-radius: 20px; font-size: 15px; font-weight: 700; cursor: pointer; transition: transform 0.2s;
+}
+.v-replay:hover { transform: scale(1.05); }
+.v-home {
+  padding: 12px 22px; background: #f0f0f0; color: #333;
+  border: none; border-radius: 20px; font-size: 15px; font-weight: 700; cursor: pointer; transition: background 0.2s;
+}
+.v-home:hover { background: #e0e0e0; }
