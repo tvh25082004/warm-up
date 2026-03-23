@@ -49,7 +49,7 @@ const QuestionBuilder = () => {
       console.error('Error generating AI response:', error);
       setMessages((prev) => [...prev, { 
         role: 'assistant', 
-        content: 'Xin lỗi cô, hệ thống AI đang gặp chút sự cố kết nối. Cô thử lại sau nhé!' 
+        content: `⚠️ ${error.message || 'Lỗi không xác định. Vui lòng thử lại!'}` 
       }]);
     }
 
