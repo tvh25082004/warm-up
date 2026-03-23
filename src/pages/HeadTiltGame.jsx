@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Webcam from 'react-webcam';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Star, Music } from 'lucide-react';
+import { ArrowLeft, Music } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import audioManager from '../services/AudioManager';
 import '../styles/Game.css';
@@ -16,12 +15,10 @@ const DEFAULT_QUESTIONS = [
   { question: "___ is a pen on the table.", optionA: "There", optionB: "These", answer: "A" },
   { question: "Những chiếc xe kia rất đẹp.", optionA: "These", optionB: "Those", answer: "B" },
   { question: "___ children are playing outside.", optionA: "These", optionB: "There", answer: "A" },
-  { question: "___ is a beautiful flower.", optionA: "It", optionB: "There", answer: "A" },
   { question: "Look! ___ is a rainbow!", optionA: "There", optionB: "These", answer: "A" },
   { question: "___ my new shoes.", optionA: "These are", optionB: "There is", answer: "A" },
   { question: "___ three birds in the tree.", optionA: "There is", optionB: "There are", answer: "B" },
   { question: "___ is my favorite book.", optionA: "This", optionB: "These", answer: "A" },
-  { question: "___ your pencils on the desk.", optionA: "There are", optionB: "This is", answer: "A" },
   { question: "___ a dog behind the door.", optionA: "These is", optionB: "There is", answer: "B" },
   { question: "___ apples are very sweet.", optionA: "These", optionB: "There", answer: "A" },
 ];
@@ -35,13 +32,19 @@ const HeadTiltGame = () => {
   const [tiltDirection, setTiltDirection] = useState(null);
   const [musicOn, setMusicOn] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const webcamRef = useRef(null);
-  const canvasRef = useRef(null);
+  const [cameraError, setCameraError] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+
+  // Use a native <video> element directly for more control
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);  // hidden analysis canvas
+  const displayCanvasRef = useRef(null);  // visible display canvas
   const animationRef = useRef(null);
   const tiltTimerRef = useRef(null);
   const processingRef = useRef(false);
+  const streamRef = useRef(null);
 
-  // Load questions from localStorage (from Import) or use defaults
+  // Load questions
   useEffect(() => {
     const imported = localStorage.getItem('active_game_questions');
     if (imported) {
@@ -49,19 +52,49 @@ const HeadTiltGame = () => {
         const parsed = JSON.parse(imported);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setQuestions(parsed);
-          localStorage.removeItem('active_game_questions'); // Clear after loading
+          localStorage.removeItem('active_game_questions');
           return;
         }
-      } catch (e) { /* fall through to defaults */ }
+      } catch (e) {}
     }
     setQuestions(DEFAULT_QUESTIONS);
   }, []);
 
-  const question = questions[currentQIndex];
+  // Start camera
+  useEffect(() => {
+    let stream = null;
+
+    const startCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play();
+            setCameraReady(true);
+          };
+        }
+      } catch (err) {
+        console.error('Camera error:', err);
+        setCameraError(true);
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
+  }, []);
 
   const toggleMusic = () => {
-    if (musicOn) { audioManager.stopBackgroundMusic(); }
-    else { audioManager.startBackgroundMusic(); }
+    if (musicOn) audioManager.stopBackgroundMusic();
+    else audioManager.startBackgroundMusic();
     setMusicOn(!musicOn);
   };
 
@@ -73,64 +106,110 @@ const HeadTiltGame = () => {
     };
   }, []);
 
-  // Simple face detection via skin color on canvas
-  const detectFace = useCallback(() => {
-    if (!webcamRef.current?.video || feedback || gameOver) {
-      animationRef.current = requestAnimationFrame(detectFace);
-      return;
-    }
-    const video = webcamRef.current.video;
-    const canvas = canvasRef.current;
-    if (!canvas || video.readyState !== 4) {
-      animationRef.current = requestAnimationFrame(detectFace);
+  // Face detection + render loop
+  const renderLoop = useCallback(() => {
+    const video = videoRef.current;
+    const analysisCanvas = canvasRef.current;
+    const displayCanvas = displayCanvasRef.current;
+
+    if (!video || video.readyState < 2 || !analysisCanvas || !displayCanvas) {
+      animationRef.current = requestAnimationFrame(renderLoop);
       return;
     }
 
-    const ctx = canvas.getContext('2d');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.save();
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-    ctx.restore();
+    const W = video.videoWidth || 640;
+    const H = video.videoHeight || 480;
 
-    // Analyze face pixels
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    analysisCanvas.width = W;
+    analysisCanvas.height = H;
+    displayCanvas.width = W;
+    displayCanvas.height = H;
+
+    // Draw mirrored frame onto analysis canvas
+    const aCtx = analysisCanvas.getContext('2d');
+    aCtx.save();
+    aCtx.scale(-1, 1);
+    aCtx.drawImage(video, -W, 0, W, H);
+    aCtx.restore();
+
+    // --- Skin detection for face position ---
+    const imageData = aCtx.getImageData(0, 0, W, H);
     const data = imageData.data;
-    const midX = canvas.width / 2;
+    const midX = W / 2;
     let leftCount = 0, rightCount = 0;
-    const step = 10;
-    const faceBottom = Math.floor(canvas.height * 0.65);
+    const faceBottom = Math.floor(H * 0.7);
+    const step = 8;
 
     for (let y = 0; y < faceBottom; y += step) {
-      for (let x = 0; x < canvas.width; x += step) {
-        const idx = (y * canvas.width + x) * 4;
+      for (let x = 0; x < W; x += step) {
+        const idx = (y * W + x) * 4;
         const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        if (r > 95 && g > 40 && b > 20 && r > g && r > b && (r - g) > 15) {
+        // Skin color heuristic
+        if (r > 95 && g > 40 && b > 20 && r > g && r > b && (r - g) > 15 && r > 150) {
           if (x < midX) leftCount++; else rightCount++;
         }
       }
     }
 
     const total = leftCount + rightCount;
-    if (total > 40) {
+    let detectedTilt = null;
+    if (total > 30) {
       const leftRatio = leftCount / total;
-      if (leftRatio > 0.62) setTiltDirection('left');
-      else if (leftRatio < 0.38) setTiltDirection('right');
-      else setTiltDirection(null);
+      if (leftRatio > 0.62) detectedTilt = 'left';
+      else if (leftRatio < 0.38) detectedTilt = 'right';
     }
 
-    animationRef.current = requestAnimationFrame(detectFace);
+    if (!feedback && !gameOver) {
+      setTiltDirection(detectedTilt);
+    }
+
+    // --- Render to display canvas (mirrored) ---
+    const dCtx = displayCanvas.getContext('2d');
+    dCtx.save();
+    dCtx.scale(-1, 1);
+    dCtx.drawImage(video, -W, 0, W, H);
+    dCtx.restore();
+
+    // Draw center line
+    dCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    dCtx.lineWidth = 2;
+    dCtx.setLineDash([8, 4]);
+    dCtx.beginPath();
+    dCtx.moveTo(midX, 0);
+    dCtx.lineTo(midX, H);
+    dCtx.stroke();
+    dCtx.setLineDash([]);
+
+    // Draw tilt highlight
+    if (detectedTilt === 'left') {
+      dCtx.fillStyle = 'rgba(83, 216, 251, 0.2)';
+      dCtx.fillRect(0, 0, midX, H);
+      dCtx.font = `bold ${Math.floor(H * 0.08)}px Nunito, sans-serif`;
+      dCtx.fillStyle = '#53d8fb';
+      dCtx.textAlign = 'center';
+      dCtx.fillText('◀', midX * 0.3, H * 0.5);
+    } else if (detectedTilt === 'right') {
+      dCtx.fillStyle = 'rgba(255, 90, 95, 0.2)';
+      dCtx.fillRect(midX, 0, midX, H);
+      dCtx.font = `bold ${Math.floor(H * 0.08)}px Nunito, sans-serif`;
+      dCtx.fillStyle = '#FF5A5F';
+      dCtx.textAlign = 'center';
+      dCtx.fillText('▶', midX * 1.7, H * 0.5);
+    }
+
+    animationRef.current = requestAnimationFrame(renderLoop);
   }, [feedback, gameOver]);
 
   useEffect(() => {
-    if (questions.length > 0) {
-      animationRef.current = requestAnimationFrame(detectFace);
+    if (cameraReady) {
+      animationRef.current = requestAnimationFrame(renderLoop);
     }
-    return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
-  }, [questions, detectFace]);
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [cameraReady, renderLoop]);
 
-  // Auto-answer on sustained tilt
+  // Auto-confirm tilt after holding 1.2s
   useEffect(() => {
     if (tiltDirection && !feedback && !processingRef.current && !gameOver) {
       tiltTimerRef.current = setTimeout(() => {
@@ -140,29 +219,30 @@ const HeadTiltGame = () => {
     return () => { if (tiltTimerRef.current) clearTimeout(tiltTimerRef.current); };
   }, [tiltDirection, feedback, gameOver]);
 
-  // Keyboard
+  // Keyboard fallback
   useEffect(() => {
     const onKey = (e) => {
-      if (feedback || processingRef.current || gameOver) return;
+      if (feedback || processingRef.current || gameOver || questions.length === 0) return;
       if (e.key === 'ArrowLeft') handleAnswer('A');
       if (e.key === 'ArrowRight') handleAnswer('B');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentQIndex, feedback, gameOver]);
+  }, [currentQIndex, feedback, gameOver, questions]);
+
+  const question = questions[currentQIndex];
 
   const handleAnswer = (chosen) => {
     if (processingRef.current || !question) return;
     processingRef.current = true;
 
     const isCorrect = chosen === question.answer;
+    setFeedback(isCorrect ? 'correct' : 'wrong');
     if (isCorrect) {
-      setFeedback('correct');
       setScore(s => s + 1);
       audioManager.playCorrectSound();
       confetti({ particleCount: 120, spread: 70, origin: { y: 0.5 }, colors: ['#00A699', '#F4C03B', '#FF5A5F', '#9C27B0'] });
     } else {
-      setFeedback('wrong');
       audioManager.playWrongSound();
     }
 
@@ -178,18 +258,25 @@ const HeadTiltGame = () => {
         const end = Date.now() + 3000;
         const iv = setInterval(() => {
           if (Date.now() > end) return clearInterval(iv);
-          confetti({ particleCount: 80, spread: 100, origin: { x: Math.random(), y: Math.random() * 0.6 } });
+          confetti({ particleCount: 60, spread: 100, origin: { x: Math.random(), y: Math.random() * 0.6 } });
         }, 250);
       }
     }, 1800);
   };
 
-  if (questions.length === 0 || !question) return null;
+  if (questions.length === 0) return (
+    <div className="tilt-game-page" style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ color: 'white', fontSize: '1.5rem' }}>Đang tải câu hỏi...</div>
+    </div>
+  );
 
   const progress = ((currentQIndex + 1) / questions.length) * 100;
 
   return (
     <div className="tilt-game-page">
+      {/* Hidden analysis canvas */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+
       {/* Header */}
       <div className="tilt-header">
         <button className="tilt-back-btn" onClick={() => navigate('/dashboard')}>
@@ -203,7 +290,7 @@ const HeadTiltGame = () => {
         </div>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress */}
       <div className="tilt-progress-wrapper">
         <div className="tilt-progress-bar" style={{ width: `${progress}%` }} />
       </div>
@@ -212,11 +299,7 @@ const HeadTiltGame = () => {
       </div>
 
       {gameOver ? (
-        <motion.div 
-          className="tilt-game-over"
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-        >
+        <motion.div className="tilt-game-over" initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
           <div style={{ fontSize: '5rem' }}>🏆</div>
           <h2>Hoàn thành!</h2>
           <p>Bạn đạt <b>{score}/{questions.length}</b> điểm</p>
@@ -231,11 +314,14 @@ const HeadTiltGame = () => {
         </motion.div>
       ) : (
         <div className="tilt-body">
-          {/* Main Question Area */}
+          {/* Question + Options layout */}
           <div className="tilt-question-area">
             {/* Left option */}
             <motion.button
-              className={`tilt-option tilt-option-left ${tiltDirection === 'left' ? 'tilt-active' : ''} ${feedback && question.answer === 'A' ? 'tilt-correct-highlight' : ''} ${feedback === 'wrong' && tiltDirection === 'left' ? 'tilt-wrong-highlight' : ''}`}
+              className={`tilt-option tilt-option-left 
+                ${tiltDirection === 'left' ? 'tilt-active' : ''} 
+                ${feedback && question.answer === 'A' ? 'tilt-correct-highlight' : ''} 
+                ${feedback === 'wrong' && tiltDirection === 'left' ? 'tilt-wrong-highlight' : ''}`}
               onClick={() => handleAnswer('A')}
               disabled={!!feedback}
               whileHover={{ scale: 1.05 }}
@@ -244,7 +330,6 @@ const HeadTiltGame = () => {
               {question.optionA}
             </motion.button>
 
-            {/* Center: Question Card */}
             <AnimatePresence mode="wait">
               <motion.div
                 key={currentQIndex}
@@ -254,12 +339,20 @@ const HeadTiltGame = () => {
                 exit={{ y: -30, opacity: 0 }}
               >
                 <p className="tilt-question-text">{question.question}</p>
+                {cameraError && (
+                  <p style={{ fontSize: '0.8rem', color: '#888', marginTop: 10 }}>
+                    ⚠️ Camera không khả dụng. Dùng phím ← →
+                  </p>
+                )}
               </motion.div>
             </AnimatePresence>
 
             {/* Right option */}
             <motion.button
-              className={`tilt-option tilt-option-right ${tiltDirection === 'right' ? 'tilt-active' : ''} ${feedback && question.answer === 'B' ? 'tilt-correct-highlight' : ''} ${feedback === 'wrong' && tiltDirection === 'right' ? 'tilt-wrong-highlight' : ''}`}
+              className={`tilt-option tilt-option-right 
+                ${tiltDirection === 'right' ? 'tilt-active' : ''} 
+                ${feedback && question.answer === 'B' ? 'tilt-correct-highlight' : ''} 
+                ${feedback === 'wrong' && tiltDirection === 'right' ? 'tilt-wrong-highlight' : ''}`}
               onClick={() => handleAnswer('B')}
               disabled={!!feedback}
               whileHover={{ scale: 1.05 }}
@@ -272,35 +365,44 @@ const HeadTiltGame = () => {
           {/* Feedback overlay */}
           <AnimatePresence>
             {feedback && (
-              <motion.div
-                className="tilt-feedback"
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0, opacity: 0 }}
-              >
+              <motion.div className="tilt-feedback" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0, opacity: 0 }}>
                 {feedback === 'correct' ? '✅ Chính xác!' : '❌ Sai rồi!'}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Camera preview - small bottom right corner */}
-          <div className="tilt-camera-preview">
-            <Webcam
-              audio={false}
-              ref={webcamRef}
-              width={160}
-              height={120}
-              videoConstraints={{ facingMode: "user" }}
-              mirrored={true}
-              style={{ borderRadius: 12, display: 'block' }}
-            />
-            <canvas ref={canvasRef} style={{ display: 'none' }} />
-            {tiltDirection && (
-              <div className={`tilt-cam-indicator ${tiltDirection}`}>
-                {tiltDirection === 'left' ? '◀' : '▶'}
-              </div>
-            )}
-          </div>
+          {/* Camera preview (display canvas) - bottom right */}
+          {!cameraError && (
+            <div className="tilt-camera-preview">
+              {/* Hidden actual video element (needed for canvas to read from) */}
+              <video
+                ref={videoRef}
+                style={{ display: 'none' }}
+                muted
+                playsInline
+                autoPlay
+              />
+              {/* Visible canvas with overlays */}
+              <canvas
+                ref={displayCanvasRef}
+                style={{ width: 200, height: 150, display: 'block', borderRadius: 12 }}
+              />
+              {tiltDirection && !feedback && (
+                <div className={`tilt-cam-indicator ${tiltDirection}`}>
+                  {tiltDirection === 'left' ? '◀' : '▶'}
+                </div>
+              )}
+              {tiltDirection && !feedback && (
+                <motion.div
+                  className="tilt-hold-bar"
+                  initial={{ width: '0%' }}
+                  animate={{ width: '100%' }}
+                  transition={{ duration: 1.2, ease: 'linear' }}
+                  key={tiltDirection}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
