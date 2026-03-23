@@ -89,10 +89,11 @@ const GameSetSelector = () => {
   const isMario = gameType === 'mario';
   const isFlappy = gameType === 'flappybird';
   const isTreasure = gameType === 'treasurequest';
+  const isZombie = gameType === 'zombiedefense';
 
   const [tab, setTab] = useState('saved'); // 'saved' | 'ai' | 'manual' | 'upload'
   const [savedSets, setSavedSets] = useState(() => {
-    return JSON.parse(localStorage.getItem('question_sets') || '[]');
+    return JSON.parse(localStorage.getItem(`question_sets_${gameType}`) || '[]');
   });
   const [aiTopic, setAiTopic] = useState('');
   const [aiCount, setAiCount] = useState(10);
@@ -117,6 +118,9 @@ const GameSetSelector = () => {
     } else if (isTreasure) {
       localStorage.setItem('active_treasure_questions', JSON.stringify(questions));
       navigate('/game/treasure');
+    } else if (isZombie) {
+      localStorage.setItem('active_zombie_questions', JSON.stringify(questions));
+      navigate('/game/zombie');
     } else {
       localStorage.setItem('active_game_questions', JSON.stringify(questions));
       navigate('/game/headtilt');
@@ -150,14 +154,18 @@ const GameSetSelector = () => {
     if (!aiTopic.trim()) return alert('Nhập chủ đề!');
     setIsGenerating(true);
     try {
+      const STRICT_RULE = `QUY TẮC TỐI THƯỢNG: 
+1. BẠN CHỈ ĐƯỢC TẠO CHÍNH XÁC ${aiCount} CÂU HỎI. 
+2. NẾU NGƯỜI DÙNG NHẬP CÁC TỪ CỤ THỂ ĐỂ PHÂN BIỆT (Ví dụ: "a, an, this, that"), BẮT BUỘC 4 ĐÁP ÁN A, B, C, D CỦA TẤT CẢ TỪNG CÂU HỎI PHẢI LÀ CHÍNH XÁC NHỮNG TỪ ĐÓ. TUYỆT ĐỐI KHÔNG ĐƯỢC TỰ BỊA ĐÁP ÁN KHÁC.
+Ví dụ: Yêu cầu "a, an, the, rỗng", thì BẮT BUỘC: "optionA": "a", "optionB": "an", "optionC": "the", "optionD": "rỗng".`;
       const prompt = isVocab 
         ? `Tạo ${aiCount} từ vựng tiếng Anh về chủ đề: "${aiTopic}". Trả về đúng JSON array: [{"left": "English word", "right": "Nghĩa tiếng Việt", "emoji": "icon"}]`
         : isMario
-        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh sôi động cho Mario về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Có thể dùng "___" để làm câu hỏi điền từ. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh sôi động cho Mario về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Có thể dùng "___" để làm câu hỏi điền từ. ${STRICT_RULE} Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
         : isFlappy
-        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh cho game Flappy Bird về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Dùng "___" ở vị trí cần điền. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
-        : isTreasure
-        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh cho game thám hiểm rừng xanh (Jungle Maze) về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Khuyến khích dùng "___" cho câu hỏi điền từ. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh cho game Flappy Bird về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Dùng "___" ở vị trí cần điền. ${STRICT_RULE} Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
+        : (isTreasure || isZombie)
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh cho game thám hiểm/phòng thủ về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Khuyến khích dùng "___" cho câu hỏi điền từ. ${STRICT_RULE} Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
         : `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}". Mỗi câu có 2 đáp án A và B. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "answer": "A hoặc B"}]`;
       const response = await aiService.generateResponse([], prompt);
       const jsonMatch = response.match(/\[[\s\S]*\]/);
@@ -193,7 +201,7 @@ const GameSetSelector = () => {
     const name = aiTopic || fileName || 'Bộ đề ' + new Date().toLocaleDateString('vi-VN');
     const set = { id: Date.now(), name, questions: preview };
     const sets = [...savedSets, set];
-    localStorage.setItem('question_sets', JSON.stringify(sets));
+    localStorage.setItem(`question_sets_${gameType}`, JSON.stringify(sets));
     setSavedSets(sets);
     alert('Đã lưu!');
     setPreview(null);
@@ -202,7 +210,7 @@ const GameSetSelector = () => {
 
   const deleteSet = (id) => {
     const sets = savedSets.filter(s => s.id !== id);
-    localStorage.setItem('question_sets', JSON.stringify(sets));
+    localStorage.setItem(`question_sets_${gameType}`, JSON.stringify(sets));
     setSavedSets(sets);
   };
 
@@ -212,7 +220,7 @@ const GameSetSelector = () => {
         <button className="back-btn" onClick={() => navigate('/dashboard')}>
           <ArrowLeft size={20} /> Quay lại
         </button>
-        <h2>🎯 Chọn Bộ {isVocab ? 'Từ Vựng' : isFlappy ? 'Câu Hỏi Flappy Bird' : isMario ? 'Câu Hỏi Mario' : isTreasure ? 'Câu Hỏi Kho Báu' : 'Câu Hỏi'} Để Chơi</h2>
+        <h2>🎯 Chọn Bộ {isVocab ? 'Từ Vựng' : isFlappy ? 'Câu Hỏi Flappy Bird' : isMario ? 'Câu Hỏi Mario' : isTreasure ? 'Câu Hỏi Kho Báu' : isZombie ? 'Câu Hỏi PlantZ' : 'Câu Hỏi'} Để Chơi</h2>
         <div style={{ width: 100 }} />
       </div>
 
@@ -254,7 +262,7 @@ const GameSetSelector = () => {
                   {isVocab ? (
                     <>{q.emoji} <b>{q.left}</b> - {q.right}</>
                   ) : (
-                    <><b>{i + 1}.</b> {q.question} → <span className="ans-tag">✓ {q.answer === 'A' ? q.optionA : q.optionB}</span></>
+                    <><b>{i + 1}.</b> {q.question} → <span className="ans-tag">✓ {q.answer === 'A' ? q.optionA : q.answer === 'B' ? q.optionB : q.answer === 'C' ? q.optionC : q.optionD}</span></>
                   )}
                 </div>
               ))}

@@ -1,0 +1,313 @@
+/* ZombieDefense.css */
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;700;800&family=Nunito:wght@400;700;900&display=swap');
+
+.zd-container {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Nunito', sans-serif;
+  background: linear-gradient(to bottom, #87CEEB 0%, #E0F7FA 40%, #81C784 40%, #4CAF50 100%);
+  overflow: hidden;
+  color: #333;
+}
+
+/* Header */
+.zd-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 30px;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.6);
+  z-index: 10;
+}
+
+.zd-header-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.zd-icon-btn {
+  background: white;
+  border: none;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  color: #5D4037;
+}
+
+.zd-hearts {
+  display: flex; gap: 5px;
+}
+
+.zd-level {
+  font-family: 'Baloo 2', cursive;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #2E7D32;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 0 #FFF;
+}
+
+.zd-score {
+  font-weight: 900;
+  font-size: 1.4rem;
+  background: #FFF;
+  padding: 5px 20px;
+  border-radius: 20px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  color: #F57F17;
+}
+
+/* Battleground (Characters) */
+.zd-battleground {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 5vh;
+}
+
+.zd-archer-wrapper {
+  position: absolute;
+  left: 10vw;
+  bottom: 0; /* Sit on grass */
+  transform: scale(1.2);
+  transform-origin: bottom center;
+}
+
+.zd-zombie-wrapper {
+  position: absolute;
+  right: 15vw;
+  bottom: 0;
+  transform: scale(1.3);
+  transform-origin: bottom center;
+}
+
+/* Animations in SVG */
+.arch-char {
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.arch-char.shooting .arm { transform-origin: 75px 110px; transform: rotate(-5deg); }
+.arch-char.shooting .bow-string { transform: translateX(20px); transition: 0.1s; }
+
+.arrow-proj {
+  position: absolute;
+  left: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.zomb-char {
+  transition: all 0.5s ease;
+}
+.zomb-char .z-arm { animation: zombieReach 2s ease-in-out infinite alternate; transform-origin: 65px 100px; }
+
+@keyframes zombieReach {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-15deg); }
+}
+
+.zomb-char.dead {
+  transform: rotate(90deg) translateY(50px) translateX(20px);
+  filter: grayscale(0.8);
+}
+.zomb-char.dead .z-arm { animation: none; transform: rotate(80deg); }
+
+
+/* Floating Question Area */
+.zd-question-area {
+  position: absolute;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  z-index: 20;
+}
+
+.zd-q-box {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 20px 40px;
+  border-radius: 30px;
+  text-align: center;
+  box-shadow: 0 15px 30px rgba(0,0,0,0.15), inset 0 -4px 0 #E0E0E0;
+  border: 4px solid #FFF;
+}
+
+.zd-q-box h2 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #4CAF50;
+  margin: 0;
+}
+
+/* Options */
+.zd-options-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  width: 100%;
+}
+
+.zd-opt-btn {
+  background: #FFF;
+  border: 4px solid #E0E0E0;
+  border-radius: 20px;
+  padding: 15px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+
+.zd-opt-btn:hover:not(:disabled) {
+  transform: translateY(-5px);
+  border-color: #81C784;
+  box-shadow: 0 15px 25px rgba(76,175,80,0.2);
+}
+
+.zd-opt-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 5px 10px rgba(76,175,80,0.2);
+}
+
+.zd-opt-key {
+  width: 40px; height: 40px;
+  background: #F1F8E9;
+  color: #2E7D32;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 900;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.zd-opt-text {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #333;
+  text-align: left;
+}
+
+/* Wrong State */
+.zd-opt-btn.wrong-disabled {
+  opacity: 0.5;
+  filter: grayscale(1);
+  transform: scale(0.95);
+  border-color: #FFCDD2;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.zd-opt-btn.wrong-disabled .zd-opt-key {
+  background: #FFEBEE;
+  color: #D32F2F;
+}
+
+.shake-red {
+  animation: bgRed 0.4s ease-in-out;
+}
+
+@keyframes bgRed {
+  0%, 100% { filter: hue-rotate(0deg); }
+  50% { filter: hue-rotate(-50deg) saturate(2); }
+}
+
+/* Mic Button */
+.zd-mic-row {
+  margin-top: 10px;
+}
+
+.zd-mic-btn {
+  background: #2196F3;
+  color: white;
+  border: none;
+  padding: 15px 35px;
+  border-radius: 50px;
+  font-weight: 900;
+  font-size: 1.1rem;
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(33,150,243,0.4);
+  transition: 0.2s;
+}
+
+.zd-mic-btn.listening {
+  background: #F44336;
+  animation: micPulseZD 1s infinite;
+}
+
+@keyframes micPulseZD {
+  0% { box-shadow: 0 0 0 0 rgba(244,67,54,0.6); }
+  70% { box-shadow: 0 0 0 20px rgba(244,67,54,0); }
+  100% { box-shadow: 0 0 0 0 rgba(244,67,54,0); }
+}
+
+.mic-spin { animation: spin 2s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+/* Victory / Global Modals */
+.zd-victory-modal {
+  margin: auto;
+  background: white;
+  padding: 50px;
+  border-radius: 40px;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+  border: 10px solid #FFCA28;
+}
+
+.zd-victory-modal h1 {
+  font-family: 'Baloo 2', cursive;
+  font-size: 3rem;
+  color: #2E7D32;
+  margin-bottom: 10px;
+}
+
+.zd-victory-modal p {
+  font-size: 1.2rem;
+  color: #666;
+  margin-bottom: 30px;
+}
+
+.zd-score-box {
+  background: #FFF8E1;
+  color: #F57F17;
+  font-size: 2rem;
+  font-weight: 900;
+  padding: 15px 30px;
+  border-radius: 20px;
+  display: inline-block;
+  margin-bottom: 30px;
+}
+
+.zd-btn-primary {
+  background: #4CAF50;
+  color: white;
+  font-weight: 900;
+  font-size: 1.2rem;
+  padding: 15px 40px;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(76,175,80,0.4);
+}
+
+@media (max-width: 600px) {
+  .zd-options-row { grid-template-columns: 1fr; }
+  .zd-archer-wrapper { left: -20px; transform: scale(0.8); }
+  .zd-zombie-wrapper { right: -20px; transform: scale(0.9); }
+  .zd-q-box h2 { font-size: 1.4rem; }
+}

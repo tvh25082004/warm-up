@@ -108,7 +108,20 @@ const Dashboard = () => {
               <span style={{ fontSize: 36 }}>💎</span>
             </div>
             <h3>Treasure Quest</h3>
-            <p>Hành trình tìm kho báu qua 4 vùng đất bí ẩn. Giải đố từ vựng để mở rương và nhận quà!</p>
+            <p>Hành trình tìm kho báu trong mê cung rừng sâu!</p>
+          </motion.div>
+
+          {/* New Zombie Defense Card */}
+          <motion.div
+            className="option-card game-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/game/select?game=zombiedefense')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#4CAF50,#2E7D32)' }}>
+              <span style={{ fontSize: 36 }}>🏹</span>
+            </div>
+            <h3>Hoa Quả Nổi Giận</h3>
+            <p>Bắn cung tiêu diệt Zombie. Trả lời đúng để bắn tên, sai thì thử lại!</p>
           </motion.div>
         </div>
 
