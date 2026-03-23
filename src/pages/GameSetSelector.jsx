@@ -151,9 +151,13 @@ const GameSetSelector = () => {
     setIsGenerating(true);
     try {
       const prompt = isVocab 
-        ? `Tạo ${aiCount} từ vựng tiếng Anh về chủ đề: "${aiTopic}". Trả về JSON array: [{"left": "English word", "right": "Nghĩa tiếng Việt", "emoji": "icon"}]`
-        : (isMario || isFlappy || isTreasure)
-        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn gọn"}]`
+        ? `Tạo ${aiCount} từ vựng tiếng Anh về chủ đề: "${aiTopic}". Trả về đúng JSON array: [{"left": "English word", "right": "Nghĩa tiếng Việt", "emoji": "icon"}]`
+        : isMario
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh sôi động cho Mario về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Có thể dùng "___" để làm câu hỏi điền từ. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
+        : isFlappy
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh cho game Flappy Bird về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Dùng "___" ở vị trí cần điền. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
+        : isTreasure
+        ? `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh cho game thám hiểm rừng xanh (Jungle Maze) về chủ đề: "${aiTopic}". Mỗi câu có 4 đáp án A, B, C, D. Khuyến khích dùng "___" cho câu hỏi điền từ. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "optionC": "...", "optionD": "...", "answer": "A hoặc B hoặc C hoặc D", "hint": "Gợi ý ngắn"}]`
         : `Tạo ${aiCount} câu hỏi trắc nghiệm tiếng Anh về chủ đề: "${aiTopic}". Mỗi câu có 2 đáp án A và B. Trả về đúng JSON array: [{"question": "...", "optionA": "...", "optionB": "...", "answer": "A hoặc B"}]`;
       const response = await aiService.generateResponse([], prompt);
       const jsonMatch = response.match(/\[[\s\S]*\]/);
