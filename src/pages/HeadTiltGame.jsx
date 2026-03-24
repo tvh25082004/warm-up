@@ -23,6 +23,57 @@ const DEFAULT_QUESTIONS = [
   { question: "___ apples are very sweet.", optionA: "These", optionB: "There", answer: "A" },
 ];
 
+// Face landmark indices for MediaPipe Face Mesh
+// Left ear tip: 234, Right ear tip: 454
+// Nose tip: 1, used for optional vertical reference
+const FACE_LEFT_EAR = 234;
+const FACE_RIGHT_EAR = 454;
+
+// Tilt threshold: normalized [0..1] range, 0.5 = center
+const TILT_THRESHOLD_LEFT = 0.42;
+const TILT_THRESHOLD_RIGHT = 0.58;
+
+// Smoothing factor (0 = no lag, 1 = full lag). Higher = smoother but slower.
+const SMOOTH_ALPHA = 0.35;
+
+class FaceTracker {
+  constructor() {
+    this.faceLandmarker = null;
+    this.ready = false;
+  }
+
+  async init() {
+    const { FaceLandmarker, FilesetResolver } = await import(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm'
+    );
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
+    this.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+    this.ready = true;
+  }
+
+  detect(videoEl) {
+    if (!this.ready || !this.faceLandmarker) return null;
+    try {
+      return this.faceLandmarker.detectForVideo(videoEl, performance.now());
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
 const HeadTiltGame = () => {
   const navigate = useNavigate();
   const [questions, setQuestions] = useState([]);
@@ -33,16 +84,17 @@ const HeadTiltGame = () => {
   const [gameOver, setGameOver] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [trackerReady, setTrackerReady] = useState(false);
 
-  // Use a native <video> element directly for more control
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);  // hidden analysis canvas
-  const displayCanvasRef = useRef(null);  // visible display canvas
+  const displayCanvasRef = useRef(null);
   const animationRef = useRef(null);
   const tiltTimerRef = useRef(null);
   const processingRef = useRef(false);
   const streamRef = useRef(null);
+  // Smoothed normalized head X position (0=left edge, 1=right edge of mirrored frame)
   const smoothedXRef = useRef(0.5);
+  const faceTrackerRef = useRef(new FaceTracker());
 
   // Load questions
   useEffect(() => {
@@ -60,22 +112,30 @@ const HeadTiltGame = () => {
     setQuestions(DEFAULT_QUESTIONS);
   }, []);
 
-  // Start camera
+  // Start camera — always on regardless of UI interaction (Safari-safe)
   useEffect(() => {
     let stream = null;
 
     const startCamera = async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
         });
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current.play();
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.setAttribute('playsinline', '');
+          video.muted = true;
+          const onReady = () => {
+            video.play().catch(() => {});
             setCameraReady(true);
           };
+          if (video.readyState >= 2) {
+            onReady();
+          } else {
+            video.onloadedmetadata = onReady;
+          }
         }
       } catch (err) {
         console.error('Camera error:', err);
@@ -87,11 +147,22 @@ const HeadTiltGame = () => {
 
     return () => {
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
   }, []);
 
+  // Init MediaPipe FaceLandmarker
+  useEffect(() => {
+    faceTrackerRef.current
+      .init()
+      .then(() => setTrackerReady(true))
+      .catch((err) => {
+        console.error('FaceLandmarker init error:', err);
+        // Fall back gracefully — camera still shows, head tracking unavailable
+        setCameraError(true);
+      });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -103,10 +174,9 @@ const HeadTiltGame = () => {
   // Face detection + render loop
   const renderLoop = useCallback(() => {
     const video = videoRef.current;
-    const analysisCanvas = canvasRef.current;
     const displayCanvas = displayCanvasRef.current;
 
-    if (!video || video.readyState < 2 || !analysisCanvas || !displayCanvas) {
+    if (!video || video.readyState < 2 || !displayCanvas) {
       animationRef.current = requestAnimationFrame(renderLoop);
       return;
     }
@@ -114,83 +184,65 @@ const HeadTiltGame = () => {
     const W = video.videoWidth || 640;
     const H = video.videoHeight || 480;
 
-    analysisCanvas.width = W;
-    analysisCanvas.height = H;
-    displayCanvas.width = W;
-    displayCanvas.height = H;
+    if (displayCanvas.width !== W) displayCanvas.width = W;
+    if (displayCanvas.height !== H) displayCanvas.height = H;
 
-    // Draw mirrored frame onto analysis canvas
-    const aCtx = analysisCanvas.getContext('2d');
-    aCtx.save();
-    aCtx.scale(-1, 1);
-    aCtx.drawImage(video, -W, 0, W, H);
-    aCtx.restore();
+    const dCtx = displayCanvas.getContext('2d');
 
-    // --- Skin detection for face position (long-range optimized) ---
-    const imageData = aCtx.getImageData(0, 0, W, H);
-    const data = imageData.data;
-    // Scan full height so distant/small face still detected
-    const step = 6; // smaller step = more pixels sampled
+    // Draw mirrored live frame
+    dCtx.save();
+    dCtx.scale(-1, 1);
+    dCtx.drawImage(video, -W, 0, W, H);
+    dCtx.restore();
 
-    let sumX = 0;
-    let count = 0;
+    // Semi-transparent overlay for contrast
+    dCtx.fillStyle = 'rgba(0,0,0,0.12)';
+    dCtx.fillRect(0, 0, W, H);
 
-    for (let y = 0; y < H; y += step) {
-      for (let x = 0; x < W; x += step) {
-        const idx = (y * W + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        // Loosened skin heuristic — works from further away (dimmer, smaller face)
-        const isSkin = (
-          r > 60 && g > 25 && b > 10 &&
-          r > g && r > b &&
-          (r - g) > 10 &&
-          r > 100 &&
-          Math.abs(r - g) > 8
-        );
-        if (isSkin) {
-          sumX += x;
-          count++;
-        }
-      }
-    }
-
+    // --- Run MediaPipe FaceLandmarker ---
     let detectedTilt = null;
-    if (count > 20) {
-      const avgX = sumX / count;
-      const normalizedX = avgX / W; // 0.0 = left edge, 1.0 = right edge
+    let headX = smoothedXRef.current; // use last known if no detection this frame
 
-      // Strong smoothing (0.85) — dot moves slowly and stably
-      smoothedXRef.current = smoothedXRef.current * 0.85 + normalizedX * 0.15;
-      const smoothedX = smoothedXRef.current;
+    if (trackerReady) {
+      const results = faceTrackerRef.current.detect(video);
+      if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+        const lm = results.faceLandmarks[0];
+        // Note: MediaPipe gives normalized coords for the unmirrored frame.
+        // We mirror our display (scaleX -1), so leftEar in unmirrored = appears on right in display.
+        // To make dot match: headCenterX_mirrored = 1 - headCenterX_raw
+        const leftEar = lm[FACE_LEFT_EAR];   // x near 0 = left side of raw frame = right of mirrored
+        const rightEar = lm[FACE_RIGHT_EAR]; // x near 1 = right side of raw frame = left of mirrored
 
-      // 0.38–0.62 is safe center zone. Outside = left or right.
-      if (smoothedX < 0.38) {
-        detectedTilt = 'left';
-      } else if (smoothedX > 0.62) {
-        detectedTilt = 'right';
+        // Head center in raw (unmirrored) space
+        const rawCenterX = (leftEar.x + rightEar.x) / 2;
+        // Mirror flip for display-space
+        const mirroredCenterX = 1 - rawCenterX;
+
+        // Smooth with exponential moving average
+        smoothedXRef.current = smoothedXRef.current * (1 - SMOOTH_ALPHA) + mirroredCenterX * SMOOTH_ALPHA;
+        headX = smoothedXRef.current;
+
+        // Tilt detection on mirrored space:
+        // headX < TILT_THRESHOLD_LEFT → user's head moved to LEFT of the screen → answer A
+        // headX > TILT_THRESHOLD_RIGHT → user's head moved to RIGHT → answer B
+        if (headX < TILT_THRESHOLD_LEFT) {
+          detectedTilt = 'left';
+        } else if (headX > TILT_THRESHOLD_RIGHT) {
+          detectedTilt = 'right';
+        }
+      } else {
+        // No face detected — drift back to center gently
+        smoothedXRef.current = smoothedXRef.current * 0.97 + 0.5 * 0.03;
+        headX = smoothedXRef.current;
       }
-    } else {
-      // Drift gently back to center when no face visible
-      smoothedXRef.current = smoothedXRef.current * 0.95 + 0.5 * 0.05;
     }
 
     if (!feedback && !gameOver) {
       setTiltDirection(detectedTilt);
     }
 
-    // --- Render to display canvas (mirrored) ---
-    const dCtx = displayCanvas.getContext('2d');
-    dCtx.save();
-    dCtx.scale(-1, 1);
-    dCtx.drawImage(video, -W, 0, W, H);
-    dCtx.restore();
-
-    // Semi-transparent dark overlay for contrast
-    dCtx.fillStyle = 'rgba(0,0,0,0.15)';
-    dCtx.fillRect(0, 0, W, H);
-
-    // Draw center safe zone
-    const boxWidth = W * 0.24; // narrower safe zone
+    // --- Draw safe-zone box ---
+    const boxWidth = W * 0.24;
     const boxX = (W - boxWidth) / 2;
     dCtx.strokeStyle = 'rgba(255,255,255,0.5)';
     dCtx.lineWidth = 2;
@@ -198,7 +250,7 @@ const HeadTiltGame = () => {
     dCtx.strokeRect(boxX, 0, boxWidth, H);
     dCtx.setLineDash([]);
 
-    // Tilt highlight
+    // Tilt zone highlight
     if (detectedTilt === 'left') {
       dCtx.fillStyle = 'rgba(83, 216, 251, 0.25)';
       dCtx.fillRect(0, 0, boxX, H);
@@ -216,19 +268,27 @@ const HeadTiltGame = () => {
       dCtx.fillText('▶', rightX + (W - rightX) / 2, H * 0.5);
     }
 
-    // Draw "follow me" tracking dot — user just needs to keep head on it
-    const dotX = smoothedXRef.current * W;
-    const dotY = H * 0.5;
-    const dotR = 14;
+    // --- Draw head-tracking dot ---
+    const dotX = headX * W;
+    const dotY = H * 0.45;
+    const dotR = 16;
 
-    // Outer glow ring
-    const gradient = dCtx.createRadialGradient(dotX, dotY, dotR * 0.5, dotX, dotY, dotR * 2.5);
-    gradient.addColorStop(0, 'rgba(255, 234, 0, 0.5)');
+    // Glow ring
+    const gradient = dCtx.createRadialGradient(dotX, dotY, dotR * 0.3, dotX, dotY, dotR * 2.8);
+    gradient.addColorStop(0, 'rgba(255, 234, 0, 0.6)');
     gradient.addColorStop(1, 'rgba(255, 234, 0, 0)');
     dCtx.beginPath();
-    dCtx.arc(dotX, dotY, dotR * 2.5, 0, 2 * Math.PI);
+    dCtx.arc(dotX, dotY, dotR * 2.8, 0, 2 * Math.PI);
     dCtx.fillStyle = gradient;
     dCtx.fill();
+
+    // Outer ring (pulsing color based on direction)
+    const ringColor = detectedTilt === 'left' ? '#53d8fb' : detectedTilt === 'right' ? '#FF5A5F' : '#FFEA00';
+    dCtx.beginPath();
+    dCtx.arc(dotX, dotY, dotR + 5, 0, 2 * Math.PI);
+    dCtx.strokeStyle = ringColor;
+    dCtx.lineWidth = 3;
+    dCtx.stroke();
 
     // Inner dot
     dCtx.beginPath();
@@ -240,14 +300,26 @@ const HeadTiltGame = () => {
     dCtx.stroke();
 
     // Label
-    dCtx.font = 'bold 12px sans-serif';
+    dCtx.font = 'bold 11px sans-serif';
     dCtx.fillStyle = 'white';
     dCtx.textAlign = 'center';
+    dCtx.shadowColor = 'rgba(0,0,0,0.8)';
+    dCtx.shadowBlur = 4;
     dCtx.fillText('HEAD', dotX, dotY + dotR + 16);
+    dCtx.shadowBlur = 0;
 
+    // "Loading tracker" notice if MediaPipe not ready
+    if (!trackerReady && !cameraError) {
+      dCtx.fillStyle = 'rgba(0,0,0,0.5)';
+      dCtx.fillRect(0, 0, W, 28);
+      dCtx.font = '13px sans-serif';
+      dCtx.fillStyle = '#FFEA00';
+      dCtx.textAlign = 'center';
+      dCtx.fillText('⏳ Đang tải bộ nhận diện khuôn mặt...', W / 2, 19);
+    }
 
     animationRef.current = requestAnimationFrame(renderLoop);
-  }, [feedback, gameOver]);
+  }, [feedback, gameOver, trackerReady, cameraError]);
 
   useEffect(() => {
     if (cameraReady) {
@@ -265,7 +337,9 @@ const HeadTiltGame = () => {
         handleAnswer(tiltDirection === 'left' ? 'A' : 'B');
       }, 1200);
     }
-    return () => { if (tiltTimerRef.current) clearTimeout(tiltTimerRef.current); };
+    return () => {
+      if (tiltTimerRef.current) clearTimeout(tiltTimerRef.current);
+    };
   }, [tiltDirection, feedback, gameOver]);
 
   // Keyboard fallback
@@ -288,7 +362,7 @@ const HeadTiltGame = () => {
     const isCorrect = chosen === question.answer;
     setFeedback(isCorrect ? 'correct' : 'wrong');
     if (isCorrect) {
-      setScore(s => s + 1);
+      setScore((s) => s + 1);
       audioManager.playCorrectSound();
       confetti({ particleCount: 150, spread: 80, origin: { x: 0, y: 0.8 }, colors: ['#00A699', '#F4C03B', '#FF5A5F', '#9C27B0'], angle: 60, velocity: 50 });
       confetti({ particleCount: 150, spread: 80, origin: { x: 1, y: 0.8 }, colors: ['#00A699', '#F4C03B', '#FF5A5F', '#9C27B0'], angle: 120, velocity: 50 });
@@ -301,10 +375,9 @@ const HeadTiltGame = () => {
       setTiltDirection(null);
       processingRef.current = false;
       if (currentQIndex < questions.length - 1) {
-        setCurrentQIndex(q => q + 1);
+        setCurrentQIndex((q) => q + 1);
       } else {
         setGameOver(true);
-        const finalScore = score + (isCorrect ? 1 : 0);
         const end = Date.now() + 3000;
         const iv = setInterval(() => {
           if (Date.now() > end) return clearInterval(iv);
@@ -324,8 +397,14 @@ const HeadTiltGame = () => {
 
   return (
     <div className="tilt-game-page">
-      {/* Hidden analysis canvas */}
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      {/* Hidden video — MediaPipe reads from this */}
+      <video
+        ref={videoRef}
+        style={{ display: 'none' }}
+        muted
+        playsInline
+        autoPlay
+      />
 
       {/* Header */}
       <div className="tilt-header">
@@ -398,13 +477,6 @@ const HeadTiltGame = () => {
             {/* Camera preview - CENTERED */}
             {!cameraError ? (
               <div className="tilt-camera-center">
-                <video
-                  ref={videoRef}
-                  style={{ display: 'none' }}
-                  muted
-                  playsInline
-                  autoPlay
-                />
                 <canvas
                   ref={displayCanvasRef}
                   style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}

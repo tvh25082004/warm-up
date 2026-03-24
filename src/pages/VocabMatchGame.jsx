@@ -69,10 +69,18 @@ const VocabMatchGame = () => {
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadeddata = () => {
-          videoRef.current.play();
+        videoRef.current.setAttribute('playsinline', '');
+        videoRef.current.setAttribute('muted', '');
+        videoRef.current.muted = true;
+        const onReady = () => {
+          videoRef.current.play().catch(() => {});
           setCameraReady(true);
         };
+        if (videoRef.current.readyState >= 2) {
+          onReady();
+        } else {
+          videoRef.current.onloadeddata = onReady;
+        }
       }
     } catch (e) {
       console.error("Camera/Mediapipe Error:", e);
@@ -297,7 +305,7 @@ const VocabMatchGame = () => {
 
       {/* Floating mini camera preview */}
       <div className="mini-cam-preview">
-        <video ref={videoRef} playsInline muted style={{ transform: 'scaleX(-1)' }} />
+        <video ref={videoRef} playsInline muted autoPlay style={{ transform: 'scaleX(-1)' }} />
         {!cameraReady && <div className="cam-loader">Bật Camera...</div>}
       </div>
     </div>
