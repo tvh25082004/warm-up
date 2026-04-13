@@ -40,6 +40,36 @@ const buildWordSegments = (text) => {
   return segments;
 };
 
+const estimateWordDurations = (wordList, rate) =>
+  wordList.map((word) => {
+    const plainLength = word.replace(/[^a-zA-Z0-9]/g, '').length || word.length || 1;
+    const baseMs = Math.min(640, 130 + plainLength * 34);
+    let pauseMs = 0;
+    if (/[,:;]$/.test(word)) pauseMs = 180;
+    if (/[.?!…]$/.test(word)) pauseMs = 360;
+    if (/["')\]]$/.test(word) && /[.?!,;:]["')\]]?$/.test(word)) {
+      pauseMs += 80;
+    }
+    return Math.max(90, (baseMs + pauseMs) / Math.max(0.5, rate || 1));
+  });
+
+const findSegmentIndexByChar = (segments, charIndex) => {
+  if (!segments.length) return -1;
+  let left = 0;
+  let right = segments.length - 1;
+  let result = 0;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    if (segments[mid].start <= charIndex) {
+      result = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  return Math.min(result, segments.length - 1);
+};
+
 const getPreferredVoice = (voices) =>
   voices.find((v) => /en-GB|en-US|en-AU/i.test(v.lang) && /female|samantha|aria|google us english/i.test(v.name)) ||
   voices.find((v) => /en-GB|en-US|en-AU/i.test(v.lang)) ||
@@ -59,6 +89,7 @@ const AISpeakingBuilder = () => {
   const speechSessionRef = useRef(0);
   const currentWordIndexRef = useRef(-1);
   const pauseStateRef = useRef({ isPauseRequest: false, resumeIndex: 0 });
+  const fallbackTimerRef = useRef(null);
   const cameraRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -94,6 +125,13 @@ const AISpeakingBuilder = () => {
   useEffect(() => {
     currentWordIndexRef.current = currentWordIndex;
   }, [currentWordIndex]);
+
+  useEffect(() => () => {
+    if (fallbackTimerRef.current) {
+      window.clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -249,6 +287,10 @@ const AISpeakingBuilder = () => {
     speechSessionRef.current += 1;
     pauseStateRef.current.isPauseRequest = true;
     pauseStateRef.current.resumeIndex = Math.max(0, currentWordIndexRef.current);
+    if (fallbackTimerRef.current) {
+      window.clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
     window.speechSynthesis.cancel();
     utteranceRef.current = null;
     setIsSpeaking(false);
@@ -269,8 +311,17 @@ const AISpeakingBuilder = () => {
     const remainingText = remainingWords.join(' ');
     const localSegments = buildWordSegments(remainingText);
     if (!localSegments.length) return;
+    const localDurations = estimateWordDurations(remainingWords, activeRate);
+    const cumulativeDurations = [];
+    localDurations.reduce((sum, duration, index) => {
+      const next = sum + duration;
+      cumulativeDurations[index] = next;
+      return next;
+    }, 0);
     const sessionId = speechSessionRef.current + 1;
     speechSessionRef.current = sessionId;
+    let boundaryCount = 0;
+    const speechStartTs = performance.now();
     const utterance = new SpeechSynthesisUtterance(remainingText);
     const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
     const selectedVoice = voices.find((voice) => voice.name === activeVoiceName) || getPreferredVoice(voices);
@@ -291,18 +342,36 @@ const AISpeakingBuilder = () => {
       setIsSpeaking(true);
       setIsSpeechPaused(false);
       setCurrentWordIndex(startIndex);
+      if (fallbackTimerRef.current) {
+        window.clearInterval(fallbackTimerRef.current);
+      }
+      fallbackTimerRef.current = window.setInterval(() => {
+        if (sessionId !== speechSessionRef.current || boundaryCount > 0) return;
+        const elapsedMs = performance.now() - speechStartTs;
+        const localIdx = cumulativeDurations.findIndex((value) => elapsedMs <= value);
+        const safeLocalIndex = localIdx >= 0 ? localIdx : cumulativeDurations.length - 1;
+        setCurrentWordIndex(Math.min(words.length - 1, startIndex + safeLocalIndex));
+      }, 40);
     };
 
     utterance.onboundary = (event) => {
       if (sessionId !== speechSessionRef.current || typeof event.charIndex !== 'number') return;
       if (event.name && event.name !== 'word') return;
-      const localIdx = localSegments.findIndex((segment) => event.charIndex < segment.end);
-      const safeLocalIndex = localIdx >= 0 ? localIdx : localSegments.length - 1;
+      boundaryCount += 1;
+      if (fallbackTimerRef.current) {
+        window.clearInterval(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+      const safeLocalIndex = findSegmentIndexByChar(localSegments, event.charIndex);
       setCurrentWordIndex(Math.min(words.length - 1, startIndex + safeLocalIndex));
     };
 
     utterance.onend = () => {
       if (sessionId !== speechSessionRef.current) return;
+      if (fallbackTimerRef.current) {
+        window.clearInterval(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
       utteranceRef.current = null;
       if (pauseStateRef.current.isPauseRequest) {
         pauseStateRef.current.isPauseRequest = false;
@@ -315,6 +384,10 @@ const AISpeakingBuilder = () => {
 
     utterance.onerror = () => {
       if (sessionId !== speechSessionRef.current) return;
+      if (fallbackTimerRef.current) {
+        window.clearInterval(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
       utteranceRef.current = null;
       if (pauseStateRef.current.isPauseRequest) {
         pauseStateRef.current.isPauseRequest = false;
@@ -335,6 +408,10 @@ const AISpeakingBuilder = () => {
     speechSessionRef.current += 1;
     pauseStateRef.current.isPauseRequest = false;
     pauseStateRef.current.resumeIndex = resumeIndex;
+    if (fallbackTimerRef.current) {
+      window.clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
     window.speechSynthesis.cancel();
     utteranceRef.current = null;
     setIsSpeaking(false);
@@ -354,12 +431,20 @@ const AISpeakingBuilder = () => {
     speechSessionRef.current += 1;
     pauseStateRef.current.isPauseRequest = false;
     pauseStateRef.current.resumeIndex = 0;
+    if (fallbackTimerRef.current) {
+      window.clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
     window.speechSynthesis.cancel();
     utteranceRef.current = null;
     setIsSpeaking(false);
     setIsSpeechPaused(false);
     setCurrentWordIndex(-1);
   };
+
+  useEffect(() => {
+    cancelSpeaking();
+  }, [practiceMode]);
 
   const cleanupMediaStream = () => {
     if (streamRef.current) {
