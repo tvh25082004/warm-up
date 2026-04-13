@@ -2,9 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video, Mic, ClipboardList, TrendingUp, History } from 'lucide-react';
+import {
+  STUDENT_ASSIGNMENTS_STORAGE_KEY,
+  readStudentAssignmentsFromStorage,
+  subscribeStudentAssignmentsRefresh
+} from '../utils/studentAssignments';
 import '../styles/Dashboard.css';
-
-const getStudentAssignmentsKey = (username) => `speaking_assignments_${username || 'student'}`;
 
 const Dashboard = () => {
   const [user, setUser] = useState(null);
@@ -19,27 +22,38 @@ const Dashboard = () => {
       setUser(parsed);
 
       const loadStudentData = () => {
-        const assignmentsRaw = localStorage.getItem(getStudentAssignmentsKey(parsed.username === 'student' ? 'student' : 'student'));
-        const assignments = assignmentsRaw ? JSON.parse(assignmentsRaw) : [];
-        setStudentAssignments(assignments);
+        setStudentAssignments(readStudentAssignmentsFromStorage());
 
-        const historyRaw = localStorage.getItem('speaking_practice_history');
-        const historyAll = historyRaw ? JSON.parse(historyRaw) : [];
-        const historyFiltered = historyAll.filter((item) => item.username === parsed.username);
-        setStudentHistory(historyFiltered);
+        try {
+          const historyRaw = localStorage.getItem('speaking_practice_history');
+          const historyAll = historyRaw ? JSON.parse(historyRaw) : [];
+          const historyFiltered = Array.isArray(historyAll)
+            ? historyAll.filter((item) => item.username === parsed.username)
+            : [];
+          setStudentHistory(historyFiltered);
+        } catch {
+          setStudentHistory([]);
+        }
       };
 
       loadStudentData();
       const intervalId = window.setInterval(loadStudentData, 1500);
       const onStorage = (event) => {
-        if (event.key === getStudentAssignmentsKey('student') || event.key === 'speaking_practice_history') {
+        if (event.key === STUDENT_ASSIGNMENTS_STORAGE_KEY || event.key === 'speaking_practice_history') {
           loadStudentData();
         }
       };
       window.addEventListener('storage', onStorage);
+      const unsubscribeAssignments = subscribeStudentAssignmentsRefresh(loadStudentData);
+      const onVisible = () => {
+        if (document.visibilityState === 'visible') loadStudentData();
+      };
+      document.addEventListener('visibilitychange', onVisible);
       return () => {
         window.clearInterval(intervalId);
         window.removeEventListener('storage', onStorage);
+        unsubscribeAssignments();
+        document.removeEventListener('visibilitychange', onVisible);
       };
     } else {
       navigate('/login');

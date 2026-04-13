@@ -6,13 +6,17 @@ import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import aiService from '../services/GeminiService';
 import audioManager from '../services/AudioManager';
+import {
+  STUDENT_ASSIGNMENTS_STORAGE_KEY,
+  readStudentAssignmentsFromStorage,
+  broadcastStudentAssignmentsChanged,
+  subscribeStudentAssignmentsRefresh
+} from '../utils/studentAssignments';
 import '../styles/AISpeakingBuilder.css';
 
 const STORAGE_KEY = 'speaking_scripts';
-const ASSIGNMENT_KEY = 'speaking_assignments_student';
 const PRACTICE_HISTORY_KEY = 'speaking_practice_history';
 const getSpeakingScriptsKey = (username) => `speaking_scripts_${username || 'unknown'}`;
-const getStudentAssignmentsKey = (username) => `speaking_assignments_${username || 'student'}`;
 
 const splitWords = (text) =>
   text
@@ -121,14 +125,7 @@ const AISpeakingBuilder = () => {
       const scriptData = localStorage.getItem(scopedScriptKey);
       setSavedScripts(scriptData ? JSON.parse(scriptData) : []);
 
-      const assignmentKey = getStudentAssignmentsKey('student');
-      const scopedAssignments = localStorage.getItem(assignmentKey);
-      const legacyAssignments = localStorage.getItem(ASSIGNMENT_KEY);
-      if (!scopedAssignments && legacyAssignments) {
-        localStorage.setItem(assignmentKey, legacyAssignments);
-      }
-      const assignmentData = localStorage.getItem(assignmentKey);
-      setStudentAssignments(assignmentData ? JSON.parse(assignmentData) : []);
+      setStudentAssignments(readStudentAssignmentsFromStorage());
     }
   }, []);
 
@@ -151,8 +148,7 @@ const AISpeakingBuilder = () => {
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
     const refreshAssignments = () => {
-      const stored = localStorage.getItem(getStudentAssignmentsKey('student'));
-      setStudentAssignments(stored ? JSON.parse(stored) : []);
+      setStudentAssignments(readStudentAssignmentsFromStorage());
     };
     const refreshScripts = () => {
       if (!user?.username) return;
@@ -163,8 +159,9 @@ const AISpeakingBuilder = () => {
     refreshScripts();
     const intervalId = window.setInterval(refreshAssignments, 1500);
     const intervalScriptId = window.setInterval(refreshScripts, 2000);
+    const unsubscribeAssignments = subscribeStudentAssignmentsRefresh(refreshAssignments);
     const onStorage = (event) => {
-      if (event.key === ASSIGNMENT_KEY || event.key === getStudentAssignmentsKey('student')) {
+      if (event.key === STUDENT_ASSIGNMENTS_STORAGE_KEY) {
         refreshAssignments();
       }
       if (user?.username && event.key === getSpeakingScriptsKey(user.username)) {
@@ -174,6 +171,7 @@ const AISpeakingBuilder = () => {
     window.addEventListener('storage', onStorage);
 
     return () => {
+      unsubscribeAssignments();
       window.clearInterval(intervalId);
       window.clearInterval(intervalScriptId);
       window.removeEventListener('storage', onStorage);
@@ -550,9 +548,7 @@ const AISpeakingBuilder = () => {
   };
 
   const assignToStudent = (item) => {
-    const assignmentKey = getStudentAssignmentsKey('student');
-    const stored = localStorage.getItem(assignmentKey);
-    const assignments = stored ? JSON.parse(stored) : [];
+    const assignments = readStudentAssignmentsFromStorage();
     const payload = {
       id: Date.now(),
       name: item.name,
@@ -560,8 +556,10 @@ const AISpeakingBuilder = () => {
       fromAdmin: user?.name || 'Giáo viên',
       createdAt: new Date().toISOString()
     };
-    localStorage.setItem(assignmentKey, JSON.stringify([payload, ...assignments]));
-    setStudentAssignments([payload, ...assignments]);
+    const next = [payload, ...assignments];
+    localStorage.setItem(STUDENT_ASSIGNMENTS_STORAGE_KEY, JSON.stringify(next));
+    setStudentAssignments(next);
+    broadcastStudentAssignmentsChanged();
     alert(`Đã giao bài "${item.name}" cho học sinh.`);
   };
 
