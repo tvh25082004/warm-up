@@ -17,6 +17,21 @@ const splitWords = (text) =>
     .split(' ')
     .filter(Boolean);
 
+const buildWordSegments = (text) => {
+  const segments = [];
+  const regex = /\S+/g;
+  let match = regex.exec(text);
+  while (match) {
+    segments.push({
+      word: match[0],
+      start: match.index,
+      end: match.index + match[0].length
+    });
+    match = regex.exec(text);
+  }
+  return segments;
+};
+
 const getPreferredVoice = (voices) =>
   voices.find((v) => /en-GB|en-US|en-AU/i.test(v.lang) && /female|samantha|aria|google us english/i.test(v.name)) ||
   voices.find((v) => /en-GB|en-US|en-AU/i.test(v.lang)) ||
@@ -54,6 +69,7 @@ const AISpeakingBuilder = () => {
   });
 
   const words = useMemo(() => splitWords(script), [script]);
+  const wordSegments = useMemo(() => buildWordSegments(script), [script]);
 
   useEffect(() => {
     audioManager.stopBackgroundMusic();
@@ -292,9 +308,12 @@ const AISpeakingBuilder = () => {
 
     utterance.onboundary = (event) => {
       if (event.name !== 'word') return;
-      const consumed = script.slice(0, event.charIndex);
-      const index = splitWords(consumed).length;
-      setCurrentWordIndex(Math.min(index, words.length - 1));
+      const idx = wordSegments.findIndex(
+        (segment) => event.charIndex >= segment.start && event.charIndex < segment.end
+      );
+      if (idx >= 0) {
+        setCurrentWordIndex(idx);
+      }
     };
 
     utterance.onend = () => {
@@ -437,20 +456,16 @@ const AISpeakingBuilder = () => {
                 <h4>Text to Speech + Subtitle realtime</h4>
                 <div className="speed-control-row">
                   <label htmlFor="speech-rate">Tốc độ nói</label>
-                  <select
+                  <input
                     id="speech-rate"
+                    type="range"
+                    min={0.5}
+                    max={1.5}
+                    step={0.25}
                     value={speechRate}
                     onChange={(e) => setSpeechRate(Number(e.target.value))}
-                    disabled={isSpeaking}
-                  >
-                    <option value={0.5}>0.50x</option>
-                    <option value={0.75}>0.75x</option>
-                    <option value={1}>1.00x</option>
-                    <option value={1.25}>1.25x</option>
-                    <option value={1.5}>1.50x</option>
-                    <option value={1.75}>1.75x</option>
-                    <option value={2}>2.00x</option>
-                  </select>
+                  />
+                  <span className="speed-value">{speechRate.toFixed(2)}x</span>
                 </div>
                 <div className="subtitle-box">
                   {words.length === 0 && <p>Script sẽ hiển thị ở đây sau khi AI tạo.</p>}

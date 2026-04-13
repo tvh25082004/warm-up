@@ -84,13 +84,14 @@
   color: #1f2937;
 }
 
-.speed-control-row select {
-  border: 1px solid #93c5fd;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #1e3a8a;
+.speed-control-row input[type='range'] {
+  width: 180px;
+}
+
+.speed-value {
+  min-width: 52px;
   font-weight: 700;
-  padding: 7px 10px;
+  color: #1e3a8a;
 }
 
 .subtitle-box {

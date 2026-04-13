@@ -19,14 +19,24 @@ import './App.css';
 function App() {
   useEffect(() => {
     const startMusic = () => {
+      if (window.location.pathname === '/builder/speaking-ai') {
+        audioManager.stopBackgroundMusic();
+        return;
+      }
       audioManager.startBackgroundMusic();
       window.removeEventListener('click', startMusic);
       window.removeEventListener('keydown', startMusic);
       window.removeEventListener('touchstart', startMusic);
     };
 
+    if (window.location.pathname === '/builder/speaking-ai') {
+      audioManager.stopBackgroundMusic();
+    }
+
     // Try to auto-play immediately (works if user has previously interacted)
-    audioManager.startBackgroundMusic();
+    if (window.location.pathname !== '/builder/speaking-ai') {
+      audioManager.startBackgroundMusic();
+    }
 
     // Fallback: play on first interaction to bypass browser autoplay block
     window.addEventListener('click', startMusic);
