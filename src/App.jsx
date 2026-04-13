@@ -7,6 +7,7 @@ import VocabMatchGame from './pages/VocabMatchGame';
 import QuestionBuilder from './pages/QuestionBuilder';
 import ImportQuestions from './pages/ImportQuestions';
 import AIVideoBuilder from './pages/AIVideoBuilder';
+import AISpeakingBuilder from './pages/AISpeakingBuilder';
 import GameSetSelector from './pages/GameSetSelector';
 import MarioRiverGame from './pages/MarioRiverGame';
 import FlappyBirdGame from './pages/FlappyBirdGame';
@@ -55,6 +56,7 @@ function App() {
         <Route path="/game/zombie" element={<ZombieDefense />} />
         <Route path="/builder" element={<QuestionBuilder />} />
         <Route path="/builder/video-ai" element={<AIVideoBuilder />} />
+        <Route path="/builder/speaking-ai" element={<AISpeakingBuilder />} />
         <Route path="/import" element={<ImportQuestions />} />
       </Routes>
     </BrowserRouter>

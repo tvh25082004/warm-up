@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video } from 'lucide-react';
+import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video, Mic } from 'lucide-react';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -162,6 +162,18 @@ const Dashboard = () => {
             </div>
             <h3>Tạo Video Giảng Dạy Bằng AI</h3>
             <p>Mở HeyGen để đăng nhập Google, nhập prompt và tạo video AI như luồng gốc.</p>
+          </motion.div>
+
+          <motion.div
+            className="option-card builder-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/builder/speaking-ai')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#10B981,#3B82F6)' }}>
+              <Mic size={40} color="white" />
+            </div>
+            <h3>Luyện Speaking</h3>
+            <p>Tạo bài luyện nói bằng AI với script + audio tiếng Anh chuẩn kèm subtitle chạy theo.</p>
           </motion.div>
         </div>
       </main>
