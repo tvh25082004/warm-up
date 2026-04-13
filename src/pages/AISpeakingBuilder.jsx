@@ -52,23 +52,11 @@ const inferVoiceTag = (voiceName) => {
   return 'Giọng';
 };
 
-const estimateSpeechDurationMs = (segments, rate) => {
-  if (!segments.length) return 0;
-  const basePerWord = 430 / Math.max(rate, 0.5);
-  return segments.reduce((total, segment) => {
-    const word = segment.word || '';
-    const punctuationBoost = /[.,;:!?]$/.test(word) ? 180 : 0;
-    const longWordBoost = Math.max(0, word.length - 6) * 12;
-    return total + basePerWord + punctuationBoost + longWordBoost;
-  }, 0);
-};
-
 const AISpeakingBuilder = () => {
   const navigate = useNavigate();
   const fileRef = useRef(null);
   const utteranceRef = useRef(null);
-  const subtitleTickerRef = useRef(null);
-  const speechTimingRef = useRef({ startedAt: 0, pausedAt: 0, pausedTotal: 0, totalMs: 0 });
+  const speechSessionRef = useRef(0);
   const currentWordIndexRef = useRef(-1);
   const pauseStateRef = useRef({ isPauseRequest: false, resumeIndex: 0 });
   const cameraRef = useRef(null);
@@ -175,10 +163,6 @@ const AISpeakingBuilder = () => {
       window.clearInterval(intervalId);
       window.clearInterval(intervalScriptId);
       window.removeEventListener('storage', onStorage);
-      if (subtitleTickerRef.current) {
-        clearInterval(subtitleTickerRef.current);
-        subtitleTickerRef.current = null;
-      }
       window.speechSynthesis.cancel();
       window.speechSynthesis.onvoiceschanged = null;
       if (streamRef.current) {
@@ -262,18 +246,16 @@ const AISpeakingBuilder = () => {
 
   const stopSpeaking = () => {
     if (!isSpeaking) return;
+    speechSessionRef.current += 1;
     pauseStateRef.current.isPauseRequest = true;
     pauseStateRef.current.resumeIndex = Math.max(0, currentWordIndexRef.current);
-    if (subtitleTickerRef.current) {
-      clearInterval(subtitleTickerRef.current);
-      subtitleTickerRef.current = null;
-    }
     window.speechSynthesis.cancel();
+    utteranceRef.current = null;
     setIsSpeaking(false);
     setIsSpeechPaused(true);
   };
 
-  const speakFromWordIndex = (startIndex) => {
+  const speakFromWordIndex = (startIndex, options = {}) => {
     if (!script.trim() || startIndex >= words.length) {
       setIsSpeaking(false);
       setIsSpeechPaused(false);
@@ -281,12 +263,17 @@ const AISpeakingBuilder = () => {
       return;
     }
 
+    const activeRate = options.rate ?? speechRate;
+    const activeVoiceName = options.voiceName ?? selectedVoiceName;
     const remainingWords = words.slice(startIndex);
     const remainingText = remainingWords.join(' ');
     const localSegments = buildWordSegments(remainingText);
+    if (!localSegments.length) return;
+    const sessionId = speechSessionRef.current + 1;
+    speechSessionRef.current = sessionId;
     const utterance = new SpeechSynthesisUtterance(remainingText);
     const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
-    const selectedVoice = voices.find((voice) => voice.name === selectedVoiceName) || getPreferredVoice(voices);
+    const selectedVoice = voices.find((voice) => voice.name === activeVoiceName) || getPreferredVoice(voices);
 
     if (selectedVoice) {
       utterance.voice = selectedVoice;
@@ -295,51 +282,28 @@ const AISpeakingBuilder = () => {
       utterance.lang = 'en-US';
     }
 
-    utterance.rate = speechRate;
+    utterance.rate = activeRate;
     utterance.pitch = 1;
     utterance.volume = 1;
 
     utterance.onstart = () => {
+      if (sessionId !== speechSessionRef.current) return;
       setIsSpeaking(true);
       setIsSpeechPaused(false);
       setCurrentWordIndex(startIndex);
-      speechTimingRef.current = {
-        startedAt: Date.now(),
-        pausedAt: 0,
-        pausedTotal: 0,
-        totalMs: estimateSpeechDurationMs(localSegments, speechRate)
-      };
-
-      if (subtitleTickerRef.current) {
-        clearInterval(subtitleTickerRef.current);
-      }
-      subtitleTickerRef.current = window.setInterval(() => {
-        if (!window.speechSynthesis.speaking) return;
-        const { startedAt, pausedTotal, totalMs } = speechTimingRef.current;
-        if (!startedAt || !totalMs || localSegments.length === 0) return;
-        const elapsed = Date.now() - startedAt - pausedTotal;
-        const progress = Math.max(0, Math.min(1, elapsed / totalMs));
-        const estimatedLocalIndex = Math.min(localSegments.length - 1, Math.floor(progress * localSegments.length));
-        const estimatedGlobalIndex = Math.min(words.length - 1, startIndex + estimatedLocalIndex);
-        setCurrentWordIndex((prev) => (estimatedGlobalIndex > prev ? estimatedGlobalIndex : prev));
-      }, 90);
     };
 
     utterance.onboundary = (event) => {
-      if (typeof event.charIndex !== 'number') return;
-      const localIdx = localSegments.findIndex(
-        (segment) => event.charIndex >= segment.start && event.charIndex < segment.end
-      );
-      if (localIdx >= 0) {
-        setCurrentWordIndex(Math.min(words.length - 1, startIndex + localIdx));
-      }
+      if (sessionId !== speechSessionRef.current || typeof event.charIndex !== 'number') return;
+      if (event.name && event.name !== 'word') return;
+      const localIdx = localSegments.findIndex((segment) => event.charIndex < segment.end);
+      const safeLocalIndex = localIdx >= 0 ? localIdx : localSegments.length - 1;
+      setCurrentWordIndex(Math.min(words.length - 1, startIndex + safeLocalIndex));
     };
 
     utterance.onend = () => {
-      if (subtitleTickerRef.current) {
-        clearInterval(subtitleTickerRef.current);
-        subtitleTickerRef.current = null;
-      }
+      if (sessionId !== speechSessionRef.current) return;
+      utteranceRef.current = null;
       if (pauseStateRef.current.isPauseRequest) {
         pauseStateRef.current.isPauseRequest = false;
         return;
@@ -350,10 +314,8 @@ const AISpeakingBuilder = () => {
     };
 
     utterance.onerror = () => {
-      if (subtitleTickerRef.current) {
-        clearInterval(subtitleTickerRef.current);
-        subtitleTickerRef.current = null;
-      }
+      if (sessionId !== speechSessionRef.current) return;
+      utteranceRef.current = null;
       if (pauseStateRef.current.isPauseRequest) {
         pauseStateRef.current.isPauseRequest = false;
         return;
@@ -367,6 +329,21 @@ const AISpeakingBuilder = () => {
     window.speechSynthesis.speak(utterance);
   };
 
+  const restartSpeakingFromCurrentWord = (options = {}) => {
+    if (!isSpeaking) return;
+    const resumeIndex = Math.max(0, currentWordIndexRef.current);
+    speechSessionRef.current += 1;
+    pauseStateRef.current.isPauseRequest = false;
+    pauseStateRef.current.resumeIndex = resumeIndex;
+    window.speechSynthesis.cancel();
+    utteranceRef.current = null;
+    setIsSpeaking(false);
+    setIsSpeechPaused(false);
+    setTimeout(() => {
+      speakFromWordIndex(resumeIndex, options);
+    }, 0);
+  };
+
   const resumeSpeaking = () => {
     if (!isSpeechPaused) return;
     audioManager.stopBackgroundMusic();
@@ -374,12 +351,9 @@ const AISpeakingBuilder = () => {
   };
 
   const cancelSpeaking = () => {
+    speechSessionRef.current += 1;
     pauseStateRef.current.isPauseRequest = false;
     pauseStateRef.current.resumeIndex = 0;
-    if (subtitleTickerRef.current) {
-      clearInterval(subtitleTickerRef.current);
-      subtitleTickerRef.current = null;
-    }
     window.speechSynthesis.cancel();
     utteranceRef.current = null;
     setIsSpeaking(false);
@@ -687,7 +661,11 @@ const AISpeakingBuilder = () => {
                     max={1.5}
                     step={0.25}
                     value={speechRate}
-                    onChange={(e) => setSpeechRate(Number(e.target.value))}
+                    onChange={(e) => {
+                      const nextRate = Number(e.target.value);
+                      setSpeechRate(nextRate);
+                      restartSpeakingFromCurrentWord({ rate: nextRate });
+                    }}
                   />
                   <span className="speed-value">{speechRate.toFixed(2)}x</span>
                 </div>
@@ -696,8 +674,11 @@ const AISpeakingBuilder = () => {
                   <select
                     id="voice-select"
                     value={selectedVoiceName}
-                    onChange={(e) => setSelectedVoiceName(e.target.value)}
-                    disabled={isSpeaking}
+                    onChange={(e) => {
+                      const nextVoice = e.target.value;
+                      setSelectedVoiceName(nextVoice);
+                      restartSpeakingFromCurrentWord({ voiceName: nextVoice });
+                    }}
                   >
                     {availableVoices.length === 0 && <option value="">Đang tải voice...</option>}
                     {availableVoices.map((voice) => (
@@ -726,7 +707,7 @@ const AISpeakingBuilder = () => {
                   <button className="logout-button" onClick={resumeSpeaking} disabled={!isSpeechPaused}>
                     <Play size={16} /> Tiếp tục
                   </button>
-                  <button className="logout-button" onClick={cancelSpeaking} disabled={!isSpeaking}>
+                  <button className="logout-button" onClick={cancelSpeaking} disabled={!isSpeaking && !isSpeechPaused}>
                     <Square size={16} /> Dừng hẳn
                   </button>
                 </div>
