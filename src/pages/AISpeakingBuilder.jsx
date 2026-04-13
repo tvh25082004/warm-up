@@ -43,12 +43,14 @@ const buildWordSegments = (text) => {
 const estimateWordDurations = (wordList, rate) =>
   wordList.map((word) => {
     const plainLength = word.replace(/[^a-zA-Z0-9]/g, '').length || word.length || 1;
-    const baseMs = Math.min(640, 130 + plainLength * 34);
+    // Small gap between tokens; real TTS has audible spacing
+    const baseMs = Math.min(640, 130 + plainLength * 34) + 55;
     let pauseMs = 0;
-    if (/[,:;]$/.test(word)) pauseMs = 180;
-    if (/[.?!…]$/.test(word)) pauseMs = 360;
+    // Generous punctuation pauses so timer-based highlight does not outrun audio
+    if (/[,:;]$/.test(word)) pauseMs = 420;
+    if (/[.?!…]$/.test(word)) pauseMs = 880;
     if (/["')\]]$/.test(word) && /[.?!,;:]["')\]]?$/.test(word)) {
-      pauseMs += 80;
+      pauseMs += 120;
     }
     return Math.max(90, (baseMs + pauseMs) / Math.max(0.5, rate || 1));
   });
@@ -312,16 +314,10 @@ const AISpeakingBuilder = () => {
     const localSegments = buildWordSegments(remainingText);
     if (!localSegments.length) return;
     const localDurations = estimateWordDurations(remainingWords, activeRate);
-    const cumulativeDurations = [];
-    localDurations.reduce((sum, duration, index) => {
-      const next = sum + duration;
-      cumulativeDurations[index] = next;
-      return next;
-    }, 0);
     const sessionId = speechSessionRef.current + 1;
     speechSessionRef.current = sessionId;
-    let boundaryCount = 0;
-    const speechStartTs = performance.now();
+    let anchorTime = performance.now();
+    let anchorLocalIndex = 0;
     const utterance = new SpeechSynthesisUtterance(remainingText);
     const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
     const selectedVoice = voices.find((voice) => voice.name === activeVoiceName) || getPreferredVoice(voices);
@@ -337,32 +333,41 @@ const AISpeakingBuilder = () => {
     utterance.pitch = 1;
     utterance.volume = 1;
 
+    const tickHighlightFromAnchor = () => {
+      if (sessionId !== speechSessionRef.current) return;
+      const elapsed = performance.now() - anchorTime;
+      let acc = 0;
+      let idx = anchorLocalIndex;
+      for (; idx < localDurations.length; idx += 1) {
+        acc += localDurations[idx];
+        if (elapsed < acc) break;
+      }
+      if (idx >= localDurations.length) idx = localDurations.length - 1;
+      setCurrentWordIndex(Math.min(words.length - 1, startIndex + idx));
+    };
+
     utterance.onstart = () => {
       if (sessionId !== speechSessionRef.current) return;
       setIsSpeaking(true);
       setIsSpeechPaused(false);
+      anchorTime = performance.now();
+      anchorLocalIndex = 0;
       setCurrentWordIndex(startIndex);
       if (fallbackTimerRef.current) {
         window.clearInterval(fallbackTimerRef.current);
       }
-      fallbackTimerRef.current = window.setInterval(() => {
-        if (sessionId !== speechSessionRef.current || boundaryCount > 0) return;
-        const elapsedMs = performance.now() - speechStartTs;
-        const localIdx = cumulativeDurations.findIndex((value) => elapsedMs <= value);
-        const safeLocalIndex = localIdx >= 0 ? localIdx : cumulativeDurations.length - 1;
-        setCurrentWordIndex(Math.min(words.length - 1, startIndex + safeLocalIndex));
-      }, 40);
+      // Timer extrapolates from anchor; each onboundary re-anchors to the engine
+      fallbackTimerRef.current = window.setInterval(tickHighlightFromAnchor, 40);
     };
 
     utterance.onboundary = (event) => {
       if (sessionId !== speechSessionRef.current || typeof event.charIndex !== 'number') return;
-      if (event.name && event.name !== 'word') return;
-      boundaryCount += 1;
-      if (fallbackTimerRef.current) {
-        window.clearInterval(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
-      }
+      const kind = (event.name || 'word').toLowerCase();
+      // Some engines only emit "sentence" boundaries; ignoring them caused pure timer drift
+      if (kind !== 'word' && kind !== 'sentence') return;
       const safeLocalIndex = findSegmentIndexByChar(localSegments, event.charIndex);
+      anchorLocalIndex = safeLocalIndex;
+      anchorTime = performance.now();
       setCurrentWordIndex(Math.min(words.length - 1, startIndex + safeLocalIndex));
     };
 
