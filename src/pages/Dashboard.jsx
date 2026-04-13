@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Camera, Gamepad2, LogOut, FileUp } from 'lucide-react';
+import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video } from 'lucide-react';
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -150,6 +150,18 @@ const Dashboard = () => {
             </div>
             <h3>Nhập Đề Từ File / Text</h3>
             <p>Tải file DOCX, TXT hoặc nhập trực tiếp nội dung để tạo bộ câu hỏi (không cần AI).</p>
+          </motion.div>
+
+          <motion.div
+            className="option-card builder-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/builder/video-ai')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#3B82F6,#8B5CF6)' }}>
+              <Video size={40} color="white" />
+            </div>
+            <h3>Tạo Video Giảng Dạy Bằng AI</h3>
+            <p>Mở HeyGen để đăng nhập Google, nhập prompt và tạo video AI như luồng gốc.</p>
           </motion.div>
         </div>
       </main>
