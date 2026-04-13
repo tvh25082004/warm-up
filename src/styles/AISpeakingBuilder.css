@@ -88,6 +88,17 @@
   width: 180px;
 }
 
+.speed-control-row select {
+  min-width: 320px;
+  max-width: 100%;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e3a8a;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
 .speed-value {
   min-width: 52px;
   font-weight: 700;

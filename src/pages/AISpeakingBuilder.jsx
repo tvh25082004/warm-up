@@ -37,10 +37,31 @@ const getPreferredVoice = (voices) =>
   voices.find((v) => /en-GB|en-US|en-AU/i.test(v.lang)) ||
   voices[0];
 
+const inferVoiceTag = (voiceName) => {
+  const lower = voiceName.toLowerCase();
+  if (/(female|woman|girl|zira|samantha|linda|aria|susan|jenny|emma|ava)/i.test(lower)) return 'Nữ';
+  if (/(male|man|boy|david|adam|guy|tom|daniel|george|matthew)/i.test(lower)) return 'Nam';
+  return 'Giọng';
+};
+
+const estimateSpeechDurationMs = (segments, rate) => {
+  if (!segments.length) return 0;
+  const basePerWord = 430 / Math.max(rate, 0.5);
+  return segments.reduce((total, segment) => {
+    const word = segment.word || '';
+    const punctuationBoost = /[.,;:!?]$/.test(word) ? 180 : 0;
+    const longWordBoost = Math.max(0, word.length - 6) * 12;
+    return total + basePerWord + punctuationBoost + longWordBoost;
+  }, 0);
+};
+
 const AISpeakingBuilder = () => {
   const navigate = useNavigate();
   const fileRef = useRef(null);
   const utteranceRef = useRef(null);
+  const subtitleTickerRef = useRef(null);
+  const speechTimingRef = useRef({ startedAt: 0, pausedAt: 0, pausedTotal: 0, totalMs: 0 });
+  const currentWordIndexRef = useRef(-1);
   const cameraRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -55,6 +76,8 @@ const AISpeakingBuilder = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isSpeechPaused, setIsSpeechPaused] = useState(false);
   const [speechRate, setSpeechRate] = useState(1);
+  const [availableVoices, setAvailableVoices] = useState([]);
+  const [selectedVoiceName, setSelectedVoiceName] = useState('');
   const [currentWordIndex, setCurrentWordIndex] = useState(-1);
   const [practiceMode, setPracticeMode] = useState('tts');
   const [isRecording, setIsRecording] = useState(false);
@@ -72,9 +95,35 @@ const AISpeakingBuilder = () => {
   const wordSegments = useMemo(() => buildWordSegments(script), [script]);
 
   useEffect(() => {
+    currentWordIndexRef.current = currentWordIndex;
+  }, [currentWordIndex]);
+
+  useEffect(() => {
     audioManager.stopBackgroundMusic();
+
+    const loadVoices = () => {
+      const englishVoices = window.speechSynthesis
+        .getVoices()
+        .filter((voice) => /^en(-|_)/i.test(voice.lang));
+      const sorted = [...englishVoices].sort((a, b) => a.name.localeCompare(b.name));
+      setAvailableVoices(sorted);
+      setSelectedVoiceName((prev) => {
+        if (prev) return prev;
+        const preferred = getPreferredVoice(sorted);
+        return preferred?.name || sorted[0]?.name || '';
+      });
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
     return () => {
+      if (subtitleTickerRef.current) {
+        clearInterval(subtitleTickerRef.current);
+        subtitleTickerRef.current = null;
+      }
       window.speechSynthesis.cancel();
+      window.speechSynthesis.onvoiceschanged = null;
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -156,18 +205,111 @@ const AISpeakingBuilder = () => {
 
   const stopSpeaking = () => {
     if (!isSpeaking) return;
-    window.speechSynthesis.pause();
+    if (subtitleTickerRef.current) {
+      clearInterval(subtitleTickerRef.current);
+      subtitleTickerRef.current = null;
+    }
+    window.speechSynthesis.cancel();
     setIsSpeechPaused(true);
   };
 
+  const speakFromWordIndex = (startIndex) => {
+    if (!script.trim() || startIndex >= words.length) {
+      setIsSpeaking(false);
+      setIsSpeechPaused(false);
+      setCurrentWordIndex(-1);
+      return;
+    }
+
+    const remainingWords = words.slice(startIndex);
+    const remainingText = remainingWords.join(' ');
+    const localSegments = buildWordSegments(remainingText);
+    const utterance = new SpeechSynthesisUtterance(remainingText);
+    const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
+    const selectedVoice = voices.find((voice) => voice.name === selectedVoiceName) || getPreferredVoice(voices);
+
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice.lang;
+    } else {
+      utterance.lang = 'en-US';
+    }
+
+    utterance.rate = speechRate;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setIsSpeechPaused(false);
+      setCurrentWordIndex(startIndex);
+      speechTimingRef.current = {
+        startedAt: Date.now(),
+        pausedAt: 0,
+        pausedTotal: 0,
+        totalMs: estimateSpeechDurationMs(localSegments, speechRate)
+      };
+
+      if (subtitleTickerRef.current) {
+        clearInterval(subtitleTickerRef.current);
+      }
+      subtitleTickerRef.current = window.setInterval(() => {
+        if (isSpeechPaused) return;
+        const { startedAt, pausedTotal, totalMs } = speechTimingRef.current;
+        if (!startedAt || !totalMs || localSegments.length === 0) return;
+        const elapsed = Date.now() - startedAt - pausedTotal;
+        const progress = Math.max(0, Math.min(1, elapsed / totalMs));
+        const estimatedLocalIndex = Math.min(localSegments.length - 1, Math.floor(progress * localSegments.length));
+        const estimatedGlobalIndex = Math.min(words.length - 1, startIndex + estimatedLocalIndex);
+        setCurrentWordIndex((prev) => (estimatedGlobalIndex > prev ? estimatedGlobalIndex : prev));
+      }, 90);
+    };
+
+    utterance.onboundary = (event) => {
+      if (typeof event.charIndex !== 'number') return;
+      const localIdx = localSegments.findIndex(
+        (segment) => event.charIndex >= segment.start && event.charIndex < segment.end
+      );
+      if (localIdx >= 0) {
+        setCurrentWordIndex(Math.min(words.length - 1, startIndex + localIdx));
+      }
+    };
+
+    utterance.onend = () => {
+      if (subtitleTickerRef.current) {
+        clearInterval(subtitleTickerRef.current);
+        subtitleTickerRef.current = null;
+      }
+      setIsSpeaking(false);
+      setIsSpeechPaused(false);
+      setCurrentWordIndex(-1);
+    };
+
+    utterance.onerror = () => {
+      if (subtitleTickerRef.current) {
+        clearInterval(subtitleTickerRef.current);
+        subtitleTickerRef.current = null;
+      }
+      setIsSpeaking(false);
+      setIsSpeechPaused(false);
+      setCurrentWordIndex(-1);
+    };
+
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
+
   const resumeSpeaking = () => {
-    if (!isSpeaking || !isSpeechPaused) return;
+    if (!isSpeechPaused) return;
     audioManager.stopBackgroundMusic();
-    window.speechSynthesis.resume();
-    setIsSpeechPaused(false);
+    speakFromWordIndex(Math.max(0, currentWordIndexRef.current));
   };
 
   const cancelSpeaking = () => {
+    if (subtitleTickerRef.current) {
+      clearInterval(subtitleTickerRef.current);
+      subtitleTickerRef.current = null;
+    }
     window.speechSynthesis.cancel();
     utteranceRef.current = null;
     setIsSpeaking(false);
@@ -285,51 +427,7 @@ const AISpeakingBuilder = () => {
 
     audioManager.stopBackgroundMusic();
     cancelSpeaking();
-    const utterance = new SpeechSynthesisUtterance(script);
-    const voices = window.speechSynthesis.getVoices();
-    const selectedVoice = getPreferredVoice(voices);
-
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-      utterance.lang = selectedVoice.lang;
-    } else {
-      utterance.lang = 'en-US';
-    }
-
-    utterance.rate = speechRate;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-      setIsSpeechPaused(false);
-      setCurrentWordIndex(0);
-    };
-
-    utterance.onboundary = (event) => {
-      if (event.name !== 'word') return;
-      const idx = wordSegments.findIndex(
-        (segment) => event.charIndex >= segment.start && event.charIndex < segment.end
-      );
-      if (idx >= 0) {
-        setCurrentWordIndex(idx);
-      }
-    };
-
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setIsSpeechPaused(false);
-      setCurrentWordIndex(-1);
-    };
-
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      setIsSpeechPaused(false);
-      setCurrentWordIndex(-1);
-    };
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+    speakFromWordIndex(0);
   };
 
   const saveScript = () => {
@@ -466,6 +564,22 @@ const AISpeakingBuilder = () => {
                     onChange={(e) => setSpeechRate(Number(e.target.value))}
                   />
                   <span className="speed-value">{speechRate.toFixed(2)}x</span>
+                </div>
+                <div className="speed-control-row">
+                  <label htmlFor="voice-select">Giọng đọc</label>
+                  <select
+                    id="voice-select"
+                    value={selectedVoiceName}
+                    onChange={(e) => setSelectedVoiceName(e.target.value)}
+                    disabled={isSpeaking}
+                  >
+                    {availableVoices.length === 0 && <option value="">Đang tải voice...</option>}
+                    {availableVoices.map((voice) => (
+                      <option key={`${voice.name}-${voice.lang}`} value={voice.name}>
+                        {inferVoiceTag(voice.name)} - {voice.name} ({voice.lang})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="subtitle-box">
                   {words.length === 0 && <p>Script sẽ hiển thị ở đây sau khi AI tạo.</p>}
