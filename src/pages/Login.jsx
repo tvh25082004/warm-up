@@ -22,7 +22,13 @@ const Login = () => {
         colors: ['#FF5A5F', '#00A699', '#FC642D', '#F4C03B']
       });
       // Store user identity
-      localStorage.setItem('user', JSON.stringify({ name: 'Trần Yến Nhi', username }));
+      localStorage.setItem('user', JSON.stringify({ name: 'Trần Yến Nhi', username, role: 'admin' }));
+      setTimeout(() => navigate('/dashboard'), 1500);
+    } else if (username === 'nganhoang' && password === 'nganhoang' && otp === '2026') {
+      localStorage.setItem('user', JSON.stringify({ name: 'Giáo Viên Hoàng Ngân', username, role: 'admin' }));
+      setTimeout(() => navigate('/dashboard'), 1500);
+    } else if (username === 'student' && password === 'student' && otp === '2026') {
+      localStorage.setItem('user', JSON.stringify({ name: 'Học sinh', username, role: 'student' }));
       setTimeout(() => navigate('/dashboard'), 1500);
     } else {
       setError('Tài khoản, mật khẩu hoặc mã OTP chưa chính xác!');

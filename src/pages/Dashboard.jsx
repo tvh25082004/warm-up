@@ -1,23 +1,57 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video, Mic } from 'lucide-react';
+import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video, Mic, ClipboardList, TrendingUp, History } from 'lucide-react';
 import '../styles/Dashboard.css';
+
+const getStudentAssignmentsKey = (username) => `speaking_assignments_${username || 'student'}`;
 
 const Dashboard = () => {
   const [user, setUser] = useState(null);
+  const [studentAssignments, setStudentAssignments] = useState([]);
+  const [studentHistory, setStudentHistory] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
-      setUser(JSON.parse(storedUser));
+      const parsed = JSON.parse(storedUser);
+      setUser(parsed);
+
+      const loadStudentData = () => {
+        const assignmentsRaw = localStorage.getItem(getStudentAssignmentsKey(parsed.username === 'student' ? 'student' : 'student'));
+        const assignments = assignmentsRaw ? JSON.parse(assignmentsRaw) : [];
+        setStudentAssignments(assignments);
+
+        const historyRaw = localStorage.getItem('speaking_practice_history');
+        const historyAll = historyRaw ? JSON.parse(historyRaw) : [];
+        const historyFiltered = historyAll.filter((item) => item.username === parsed.username);
+        setStudentHistory(historyFiltered);
+      };
+
+      loadStudentData();
+      const intervalId = window.setInterval(loadStudentData, 1500);
+      const onStorage = (event) => {
+        if (event.key === getStudentAssignmentsKey('student') || event.key === 'speaking_practice_history') {
+          loadStudentData();
+        }
+      };
+      window.addEventListener('storage', onStorage);
+      return () => {
+        window.clearInterval(intervalId);
+        window.removeEventListener('storage', onStorage);
+      };
     } else {
       navigate('/login');
     }
   }, [navigate]);
 
   if (!user) return null;
+  const isStudent = user.role === 'student';
+  const assignments = studentAssignments;
+  const latestLearning = studentHistory[0];
+  const completedAssignments = new Set(studentHistory.map((item) => item.assignmentId).filter(Boolean)).size;
+  const progressPercent = assignments.length > 0 ? Math.round((completedAssignments / assignments.length) * 100) : 0;
 
   return (
     <div className="dashboard-container">
@@ -28,7 +62,7 @@ const Dashboard = () => {
       <nav className="dashboard-nav glass-panel">
         <div className="nav-profile">
           <div className="avatar">{user.name.charAt(0)}</div>
-          <h2>Giáo viên: <span>{user.name}</span></h2>
+          <h2>{isStudent ? 'Học sinh:' : 'Giáo viên:'} <span>{user.name}</span></h2>
         </div>
         <button className="logout-button" onClick={() => {
           localStorage.removeItem('user');
@@ -48,9 +82,45 @@ const Dashboard = () => {
           <p>Hôm nay chúng ta sẽ tổ chức hoạt động nào cho các bé đây?</p>
         </motion.div>
 
-        {/* Section: Games */}
-        <h2 className="section-title">🎮 Chọn Trò Chơi</h2>
-        <div className="options-grid">
+        {isStudent ? (
+          <>
+            <h2 className="section-title">📚 Dashboard Học Tập</h2>
+            <div className="options-grid">
+              <motion.div className="option-card glass-panel" whileHover={{ scale: 1.03, y: -5 }}>
+                <div className="icon-wrapper bg-purple">
+                  <ClipboardList size={38} color="white" />
+                </div>
+                <h3>Bài tập hôm nay</h3>
+                <p>{assignments.length} bài từ giáo viên Trần Yến Nhi.</p>
+                <button className="logout-button" onClick={() => navigate('/builder/speaking-ai')}>Vào luyện tập</button>
+              </motion.div>
+
+              <motion.div className="option-card glass-panel" whileHover={{ scale: 1.03, y: -5 }}>
+                <div className="icon-wrapper bg-teal">
+                  <TrendingUp size={38} color="white" />
+                </div>
+                <h3>Tiến độ học tập</h3>
+                <p>Đã hoàn thành {completedAssignments}/{assignments.length} bài ({progressPercent}%).</p>
+              </motion.div>
+
+              <motion.div className="option-card glass-panel" whileHover={{ scale: 1.03, y: -5 }}>
+                <div className="icon-wrapper bg-orange">
+                  <History size={38} color="white" />
+                </div>
+                <h3>Lần học gần nhất</h3>
+                <p>
+                  {latestLearning
+                    ? `${latestLearning.assignmentName || 'Bài speaking'} - Band ${latestLearning.overallBand ?? 'N/A'}`
+                    : 'Chưa có lịch sử luyện tập.'}
+                </p>
+              </motion.div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Section: Games */}
+            <h2 className="section-title">🎮 Chọn Trò Chơi</h2>
+            <div className="options-grid">
           <motion.div 
             className="option-card game-card glass-panel"
             whileHover={{ scale: 1.03, y: -5 }}
@@ -123,11 +193,11 @@ const Dashboard = () => {
             <h3>Hoa Quả Nổi Giận</h3>
             <p>Bắn cung tiêu diệt Zombie. Trả lời đúng để bắn tên, sai thì thử lại!</p>
           </motion.div>
-        </div>
+            </div>
 
-        {/* Section: Build Questions */}
-        <h2 className="section-title">📝 Xây Dựng Bộ Câu Hỏi</h2>
-        <div className="options-grid">
+            {/* Section: Build Questions */}
+            <h2 className="section-title">📝 Xây Dựng Bộ Câu Hỏi</h2>
+            <div className="options-grid">
           <motion.div 
             className="option-card builder-card glass-panel"
             whileHover={{ scale: 1.03, y: -5 }}
@@ -175,7 +245,9 @@ const Dashboard = () => {
             <h3>Luyện Speaking</h3>
             <p>Tạo bài luyện nói bằng AI với script + audio tiếng Anh chuẩn kèm subtitle chạy theo.</p>
           </motion.div>
-        </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

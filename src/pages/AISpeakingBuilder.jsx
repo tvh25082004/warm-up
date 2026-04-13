@@ -9,6 +9,10 @@ import audioManager from '../services/AudioManager';
 import '../styles/AISpeakingBuilder.css';
 
 const STORAGE_KEY = 'speaking_scripts';
+const ASSIGNMENT_KEY = 'speaking_assignments_student';
+const PRACTICE_HISTORY_KEY = 'speaking_practice_history';
+const getSpeakingScriptsKey = (username) => `speaking_scripts_${username || 'unknown'}`;
+const getStudentAssignmentsKey = (username) => `speaking_assignments_${username || 'student'}`;
 
 const splitWords = (text) =>
   text
@@ -62,11 +66,13 @@ const AISpeakingBuilder = () => {
   const subtitleTickerRef = useRef(null);
   const speechTimingRef = useRef({ startedAt: 0, pausedAt: 0, pausedTotal: 0, totalMs: 0 });
   const currentWordIndexRef = useRef(-1);
+  const pauseStateRef = useRef({ isPauseRequest: false, resumeIndex: 0 });
   const cameraRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
 
   const [activeTab, setActiveTab] = useState('create');
+  const [user, setUser] = useState(null);
   const [prompt, setPrompt] = useState('');
   const [documentText, setDocumentText] = useState('');
   const [fileName, setFileName] = useState('');
@@ -86,17 +92,45 @@ const AISpeakingBuilder = () => {
   const [transcript, setTranscript] = useState('');
   const [scoreResult, setScoreResult] = useState(null);
   const [isScoring, setIsScoring] = useState(false);
-  const [savedScripts, setSavedScripts] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [savedScripts, setSavedScripts] = useState([]);
+  const [studentAssignments, setStudentAssignments] = useState([]);
 
   const words = useMemo(() => splitWords(script), [script]);
   const wordSegments = useMemo(() => buildWordSegments(script), [script]);
+  const isStudent = user?.role === 'student';
 
   useEffect(() => {
     currentWordIndexRef.current = currentWordIndex;
   }, [currentWordIndex]);
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      setUser(parsed);
+      if (parsed.role === 'student') {
+        setActiveTab('saved');
+      }
+
+      const scopedScriptKey = getSpeakingScriptsKey(parsed.username);
+      const scopedScripts = localStorage.getItem(scopedScriptKey);
+      const legacyScripts = localStorage.getItem(STORAGE_KEY);
+      if (!scopedScripts && legacyScripts && parsed.role === 'admin') {
+        localStorage.setItem(scopedScriptKey, legacyScripts);
+      }
+      const scriptData = localStorage.getItem(scopedScriptKey);
+      setSavedScripts(scriptData ? JSON.parse(scriptData) : []);
+
+      const assignmentKey = getStudentAssignmentsKey('student');
+      const scopedAssignments = localStorage.getItem(assignmentKey);
+      const legacyAssignments = localStorage.getItem(ASSIGNMENT_KEY);
+      if (!scopedAssignments && legacyAssignments) {
+        localStorage.setItem(assignmentKey, legacyAssignments);
+      }
+      const assignmentData = localStorage.getItem(assignmentKey);
+      setStudentAssignments(assignmentData ? JSON.parse(assignmentData) : []);
+    }
+  }, []);
 
   useEffect(() => {
     audioManager.stopBackgroundMusic();
@@ -116,8 +150,33 @@ const AISpeakingBuilder = () => {
 
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
+    const refreshAssignments = () => {
+      const stored = localStorage.getItem(getStudentAssignmentsKey('student'));
+      setStudentAssignments(stored ? JSON.parse(stored) : []);
+    };
+    const refreshScripts = () => {
+      if (!user?.username) return;
+      const stored = localStorage.getItem(getSpeakingScriptsKey(user.username));
+      setSavedScripts(stored ? JSON.parse(stored) : []);
+    };
+    refreshAssignments();
+    refreshScripts();
+    const intervalId = window.setInterval(refreshAssignments, 1500);
+    const intervalScriptId = window.setInterval(refreshScripts, 2000);
+    const onStorage = (event) => {
+      if (event.key === ASSIGNMENT_KEY || event.key === getStudentAssignmentsKey('student')) {
+        refreshAssignments();
+      }
+      if (user?.username && event.key === getSpeakingScriptsKey(user.username)) {
+        refreshScripts();
+      }
+    };
+    window.addEventListener('storage', onStorage);
 
     return () => {
+      window.clearInterval(intervalId);
+      window.clearInterval(intervalScriptId);
+      window.removeEventListener('storage', onStorage);
       if (subtitleTickerRef.current) {
         clearInterval(subtitleTickerRef.current);
         subtitleTickerRef.current = null;
@@ -131,7 +190,7 @@ const AISpeakingBuilder = () => {
         URL.revokeObjectURL(recordingUrl);
       }
     };
-  }, [recordingUrl]);
+  }, [recordingUrl, user?.username]);
 
   const handleUpload = async (event) => {
     const file = event.target.files?.[0];
@@ -205,11 +264,14 @@ const AISpeakingBuilder = () => {
 
   const stopSpeaking = () => {
     if (!isSpeaking) return;
+    pauseStateRef.current.isPauseRequest = true;
+    pauseStateRef.current.resumeIndex = Math.max(0, currentWordIndexRef.current);
     if (subtitleTickerRef.current) {
       clearInterval(subtitleTickerRef.current);
       subtitleTickerRef.current = null;
     }
     window.speechSynthesis.cancel();
+    setIsSpeaking(false);
     setIsSpeechPaused(true);
   };
 
@@ -254,7 +316,7 @@ const AISpeakingBuilder = () => {
         clearInterval(subtitleTickerRef.current);
       }
       subtitleTickerRef.current = window.setInterval(() => {
-        if (isSpeechPaused) return;
+        if (!window.speechSynthesis.speaking) return;
         const { startedAt, pausedTotal, totalMs } = speechTimingRef.current;
         if (!startedAt || !totalMs || localSegments.length === 0) return;
         const elapsed = Date.now() - startedAt - pausedTotal;
@@ -280,6 +342,10 @@ const AISpeakingBuilder = () => {
         clearInterval(subtitleTickerRef.current);
         subtitleTickerRef.current = null;
       }
+      if (pauseStateRef.current.isPauseRequest) {
+        pauseStateRef.current.isPauseRequest = false;
+        return;
+      }
       setIsSpeaking(false);
       setIsSpeechPaused(false);
       setCurrentWordIndex(-1);
@@ -289,6 +355,10 @@ const AISpeakingBuilder = () => {
       if (subtitleTickerRef.current) {
         clearInterval(subtitleTickerRef.current);
         subtitleTickerRef.current = null;
+      }
+      if (pauseStateRef.current.isPauseRequest) {
+        pauseStateRef.current.isPauseRequest = false;
+        return;
       }
       setIsSpeaking(false);
       setIsSpeechPaused(false);
@@ -302,10 +372,12 @@ const AISpeakingBuilder = () => {
   const resumeSpeaking = () => {
     if (!isSpeechPaused) return;
     audioManager.stopBackgroundMusic();
-    speakFromWordIndex(Math.max(0, currentWordIndexRef.current));
+    speakFromWordIndex(Math.max(0, pauseStateRef.current.resumeIndex));
   };
 
   const cancelSpeaking = () => {
+    pauseStateRef.current.isPauseRequest = false;
+    pauseStateRef.current.resumeIndex = 0;
     if (subtitleTickerRef.current) {
       clearInterval(subtitleTickerRef.current);
       subtitleTickerRef.current = null;
@@ -411,6 +483,20 @@ const AISpeakingBuilder = () => {
       setTranscript(text);
       const score = await aiService.scoreSpeakingIelts(script, text);
       setScoreResult(score);
+      if (user?.username) {
+        const currentAssignment = studentAssignments.find((assignment) => assignment.script === script);
+        const stored = localStorage.getItem(PRACTICE_HISTORY_KEY);
+        const currentHistory = stored ? JSON.parse(stored) : [];
+        const newItem = {
+          id: Date.now(),
+          username: user.username,
+          assignmentId: currentAssignment?.id || null,
+          assignmentName: currentAssignment?.name || scriptTitle || 'Bài speaking',
+          overallBand: score?.overallBand ?? null,
+          createdAt: new Date().toISOString()
+        };
+        localStorage.setItem(PRACTICE_HISTORY_KEY, JSON.stringify([newItem, ...currentHistory]));
+      }
     } catch (error) {
       console.error(error);
       alert(error.message || 'Không thể chấm điểm speaking.');
@@ -432,6 +518,7 @@ const AISpeakingBuilder = () => {
 
   const saveScript = () => {
     if (!script.trim()) return;
+    const scriptKey = getSpeakingScriptsKey(user?.username);
     const name = scriptTitle.trim() || `Speaking ${new Date().toLocaleDateString('vi-VN')}`;
     const item = {
       id: Date.now(),
@@ -442,7 +529,7 @@ const AISpeakingBuilder = () => {
     };
     const updated = [item, ...savedScripts];
     setSavedScripts(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(scriptKey, JSON.stringify(updated));
     setScriptTitle('');
     alert(`Đã lưu "${name}"`);
   };
@@ -456,9 +543,34 @@ const AISpeakingBuilder = () => {
   };
 
   const deleteSavedScript = (id) => {
+    const scriptKey = getSpeakingScriptsKey(user?.username);
     const updated = savedScripts.filter((item) => item.id !== id);
     setSavedScripts(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(scriptKey, JSON.stringify(updated));
+  };
+
+  const assignToStudent = (item) => {
+    const assignmentKey = getStudentAssignmentsKey('student');
+    const stored = localStorage.getItem(assignmentKey);
+    const assignments = stored ? JSON.parse(stored) : [];
+    const payload = {
+      id: Date.now(),
+      name: item.name,
+      script: item.script,
+      fromAdmin: user?.name || 'Giáo viên',
+      createdAt: new Date().toISOString()
+    };
+    localStorage.setItem(assignmentKey, JSON.stringify([payload, ...assignments]));
+    setStudentAssignments([payload, ...assignments]);
+    alert(`Đã giao bài "${item.name}" cho học sinh.`);
+  };
+
+  const openAssignment = (item) => {
+    setScript(item.script || '');
+    setScriptTitle(item.name || '');
+    setActiveTab('create');
+    setPracticeMode('practice');
+    setCurrentWordIndex(-1);
   };
 
   return (
@@ -474,30 +586,42 @@ const AISpeakingBuilder = () => {
 
         <div className="speaking-tabs">
           <button className={activeTab === 'saved' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('saved')}>
-            Đã lưu
+            {isStudent ? 'Bài tập được giao' : 'Đã lưu'}
           </button>
-          <button className={activeTab === 'create' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('create')}>
+          {!isStudent && (
+            <button className={activeTab === 'create' ? 'tab-btn active' : 'tab-btn'} onClick={() => setActiveTab('create')}>
             Tạo File nói bằng AI
-          </button>
+            </button>
+          )}
         </div>
 
         {activeTab === 'saved' && (
           <div className="glass-panel speaking-block">
-            <h3>📚 Danh sách script đã lưu</h3>
-            {savedScripts.length === 0 && <p>Chưa có script nào được lưu.</p>}
-            {savedScripts.map((item) => (
+            <h3>{isStudent ? '📚 Bài tập giáo viên giao' : '📚 Danh sách script đã lưu'}</h3>
+            {(isStudent ? studentAssignments : savedScripts).length === 0 && (
+              <p>{isStudent ? 'Hiện chưa có bài tập mới.' : 'Chưa có script nào được lưu.'}</p>
+            )}
+            {(isStudent ? studentAssignments : savedScripts).map((item) => (
               <div key={item.id} className="saved-script-item">
                 <div>
                   <strong>{item.name}</strong>
+                  {isStudent && <p>Giáo viên giao: {item.fromAdmin || 'Trần Yến Nhi'}</p>}
                   <p>{new Date(item.createdAt).toLocaleString('vi-VN')}</p>
                 </div>
                 <div className="saved-actions">
-                  <button className="logout-button" onClick={() => playSavedScript(item)}>
+                  <button className="logout-button" onClick={() => (isStudent ? openAssignment(item) : playSavedScript(item))}>
                     <Play size={16} /> Mở
                   </button>
-                  <button className="logout-button danger-btn" onClick={() => deleteSavedScript(item.id)}>
-                    <Trash2 size={16} /> Xóa
-                  </button>
+                  {!isStudent && (
+                    <>
+                      <button className="logout-button" onClick={() => assignToStudent(item)}>
+                        <Sparkles size={16} /> Giao bài tập
+                      </button>
+                      <button className="logout-button danger-btn" onClick={() => deleteSavedScript(item.id)}>
+                        <Trash2 size={16} /> Xóa
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -506,33 +630,37 @@ const AISpeakingBuilder = () => {
 
         {activeTab === 'create' && (
           <motion.div className="glass-panel speaking-block" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <h3>✨ Tạo đoạn nói bằng AI</h3>
-            <textarea
-              className="text-input"
-              rows={4}
-              placeholder="Ví dụ: Hãy tạo cho tôi một đoạn nói chủ đề protecting the environment, văn phong tự nhiên cho học sinh THCS..."
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
+            <h3>{isStudent ? '🎯 Luyện bài được giao' : '✨ Tạo đoạn nói bằng AI'}</h3>
+            {!isStudent && (
+              <>
+                <textarea
+                  className="text-input"
+                  rows={4}
+                  placeholder="Ví dụ: Hãy tạo cho tôi một đoạn nói chủ đề protecting the environment, văn phong tự nhiên cho học sinh THCS..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                />
 
-            <div className="upload-row">
-              <button className="logout-button" onClick={() => fileRef.current?.click()}>
-                <FileUp size={18} /> Upload document / excel
-              </button>
-              <span>{fileName || 'Hỗ trợ: .docx, .txt, .xlsx, .xls'}</span>
-              <input ref={fileRef} type="file" accept=".docx,.txt,.xlsx,.xls" onChange={handleUpload} style={{ display: 'none' }} />
-            </div>
+                <div className="upload-row">
+                  <button className="logout-button" onClick={() => fileRef.current?.click()}>
+                    <FileUp size={18} /> Upload document / excel
+                  </button>
+                  <span>{fileName || 'Hỗ trợ: .docx, .txt, .xlsx, .xls'}</span>
+                  <input ref={fileRef} type="file" accept=".docx,.txt,.xlsx,.xls" onChange={handleUpload} style={{ display: 'none' }} />
+                </div>
 
-            {documentText && (
-              <div className="doc-preview">
-                <h4>Nội dung tài liệu đã nạp</h4>
-                <p>{documentText.slice(0, 500)}{documentText.length > 500 ? '...' : ''}</p>
-              </div>
+                {documentText && (
+                  <div className="doc-preview">
+                    <h4>Nội dung tài liệu đã nạp</h4>
+                    <p>{documentText.slice(0, 500)}{documentText.length > 500 ? '...' : ''}</p>
+                  </div>
+                )}
+
+                <button className="parse-btn" onClick={handleGenerateScript} disabled={isGenerating}>
+                  <Sparkles size={18} /> {isGenerating ? 'AI đang xử lý...' : 'Tạo Script Speaking'}
+                </button>
+              </>
             )}
-
-            <button className="parse-btn" onClick={handleGenerateScript} disabled={isGenerating}>
-              <Sparkles size={18} /> {isGenerating ? 'AI đang xử lý...' : 'Tạo Script Speaking'}
-            </button>
 
             <div className="mode-switch-row">
               <button
@@ -597,7 +725,7 @@ const AISpeakingBuilder = () => {
                   <button className="logout-button" onClick={stopSpeaking} disabled={!isSpeaking || isSpeechPaused}>
                     <Square size={16} /> Tạm dừng
                   </button>
-                  <button className="logout-button" onClick={resumeSpeaking} disabled={!isSpeaking || !isSpeechPaused}>
+                  <button className="logout-button" onClick={resumeSpeaking} disabled={!isSpeechPaused}>
                     <Play size={16} /> Tiếp tục
                   </button>
                   <button className="logout-button" onClick={cancelSpeaking} disabled={!isSpeaking}>
@@ -676,17 +804,19 @@ const AISpeakingBuilder = () => {
               </div>
             )}
 
-            <div className="save-row">
-              <input
-                type="text"
-                placeholder="Tên bài luyện speaking..."
-                value={scriptTitle}
-                onChange={(e) => setScriptTitle(e.target.value)}
-              />
-              <button className="logout-button" onClick={saveScript}>
-                <Save size={16} /> Lưu
-              </button>
-            </div>
+            {!isStudent && (
+              <div className="save-row">
+                <input
+                  type="text"
+                  placeholder="Tên bài luyện speaking..."
+                  value={scriptTitle}
+                  onChange={(e) => setScriptTitle(e.target.value)}
+                />
+                <button className="logout-button" onClick={saveScript}>
+                  <Save size={16} /> Lưu
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
       </main>
