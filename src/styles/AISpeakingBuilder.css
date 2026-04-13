@@ -72,6 +72,27 @@
   margin-top: 0;
 }
 
+.speed-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.speed-control-row label {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.speed-control-row select {
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e3a8a;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
 .subtitle-box {
   min-height: 90px;
   background: #ffffff;

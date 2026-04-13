@@ -39,6 +39,7 @@ const AISpeakingBuilder = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isSpeechPaused, setIsSpeechPaused] = useState(false);
+  const [speechRate, setSpeechRate] = useState(1);
   const [currentWordIndex, setCurrentWordIndex] = useState(-1);
   const [practiceMode, setPracticeMode] = useState('tts');
   const [isRecording, setIsRecording] = useState(false);
@@ -279,7 +280,7 @@ const AISpeakingBuilder = () => {
       utterance.lang = 'en-US';
     }
 
-    utterance.rate = 0.92;
+    utterance.rate = speechRate;
     utterance.pitch = 1;
     utterance.volume = 1;
 
@@ -434,6 +435,23 @@ const AISpeakingBuilder = () => {
             {practiceMode === 'tts' && (
               <div className="tts-panel">
                 <h4>Text to Speech + Subtitle realtime</h4>
+                <div className="speed-control-row">
+                  <label htmlFor="speech-rate">Tốc độ nói</label>
+                  <select
+                    id="speech-rate"
+                    value={speechRate}
+                    onChange={(e) => setSpeechRate(Number(e.target.value))}
+                    disabled={isSpeaking}
+                  >
+                    <option value={0.5}>0.50x</option>
+                    <option value={0.75}>0.75x</option>
+                    <option value={1}>1.00x</option>
+                    <option value={1.25}>1.25x</option>
+                    <option value={1.5}>1.50x</option>
+                    <option value={1.75}>1.75x</option>
+                    <option value={2}>2.00x</option>
+                  </select>
+                </div>
                 <div className="subtitle-box">
                   {words.length === 0 && <p>Script sẽ hiển thị ở đây sau khi AI tạo.</p>}
                   {words.length > 0 && words.map((word, index) => (
