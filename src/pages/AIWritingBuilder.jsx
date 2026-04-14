@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { ArrowLeft, FileUp, Sparkles, ClipboardCheck, Image as ImageIcon, Download } from 'lucide-react';
 import mammoth from 'mammoth';
 import { unzipSync, strFromU8 } from 'fflate';

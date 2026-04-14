@@ -1,3 +1,5 @@
+import { ensureWhisperSizedMedia } from '../utils/whisperMediaPrep';
+
 /**
  * AIService - Singleton OOP Pattern
  * Manages AI connection using OpenAI GPT-4o for question generation
@@ -582,7 +584,6 @@ Khi được yêu cầu tạo bộ câu hỏi cho game, hãy trả về dạng J
     const maxBytes = 25 * 1024 * 1024;
     let fileToSend = file;
     if (file.size > maxBytes) {
-      const { ensureWhisperSizedMedia } = await import('../utils/whisperMediaPrep.js');
       fileToSend = await ensureWhisperSizedMedia(file, maxBytes);
     }
     if (fileToSend.size > maxBytes) {
