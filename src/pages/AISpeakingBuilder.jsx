@@ -541,7 +541,7 @@ const AISpeakingBuilder = () => {
 
     setIsScoring(true);
     try {
-      const text = await aiService.transcribeAudio(recordingBlob);
+      const text = await aiService.transcribeAudio(recordingBlob, script);
       setTranscript(text);
       const score = await aiService.scoreSpeakingIelts(script, text);
       setScoreResult(score);

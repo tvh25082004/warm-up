@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileUp, Sparkles, ClipboardCheck, Video, Mic, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileUp, Sparkles, ClipboardCheck, Video, Mic, Trash2, Download } from 'lucide-react';
 import aiService from '../services/GeminiService';
 import audioManager from '../services/AudioManager';
+import { downloadDocxReport } from '../utils/docxReport';
 import '../styles/AISpeakingBuilder.css';
 
 const GRADES_STORAGE_PREFIX = 'ielts_speaking_upload_grades';
@@ -219,6 +220,48 @@ const IELTSSpeakingGrader = () => {
     setActiveTab('grade');
   };
 
+  const downloadSpeakingReport = () => {
+    if (!scoreResult) return;
+    const scoreRows = [
+      { label: 'Overall Band', value: scoreResult.overallBand ?? '-' },
+      { label: 'Fluency & Coherence', value: scoreResult.fluencyCoherence ?? '-' },
+      { label: 'Lexical Resource', value: scoreResult.lexicalResource ?? '-' },
+      { label: 'Grammar Range & Accuracy', value: scoreResult.grammarRangeAccuracy ?? '-' },
+      { label: 'Pronunciation', value: scoreResult.pronunciation ?? '-' }
+    ];
+    const sections = [
+      { heading: 'Nhan xet tong quan', lines: [scoreResult.feedback || '-'] },
+      { heading: 'Diem manh', lines: [scoreResult.strengths || '-'] },
+      { heading: 'Can cai thien', lines: [scoreResult.improvements || '-'] },
+      { heading: 'Mau cai thien', lines: [scoreResult.improvedSample || '-'] }
+    ];
+
+    if (Array.isArray(scoreResult.pronunciationIssues) && scoreResult.pronunciationIssues.length > 0) {
+      sections.push({
+        heading: 'Chi tiet phat am can sua',
+        lines: scoreResult.pronunciationIssues.slice(0, 12).map((item, idx) =>
+          `${idx + 1}. ${item.spoken || '-'} -> ${item.likelyTarget || '-'} (${item.issueType || 'issue'}). ${item.why || ''} ${item.practiceTip ? `Tip: ${item.practiceTip}` : ''}`
+        )
+      });
+    }
+    if (Array.isArray(scoreResult.languageIssues) && scoreResult.languageIssues.length > 0) {
+      sections.push({
+        heading: 'Cum tu / cau can sua',
+        lines: scoreResult.languageIssues.slice(0, 12).map((item, idx) =>
+          `${idx + 1}. ${item.original || '-'} -> ${item.improved || '-'} (${item.issueType || 'issue'}). ${item.why || ''}`
+        )
+      });
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadDocxReport({
+      fileName: `speaking-feedback-${stamp}.docx`,
+      title: 'IELTS Speaking Feedback Report',
+      scoreRows,
+      sections
+    });
+  };
+
   if (!user) return null;
 
   return (
@@ -339,6 +382,9 @@ const IELTSSpeakingGrader = () => {
             {scoreResult && (
               <div className="result-box score-box">
                 <h4>Kết quả chấm (lần gần nhất)</h4>
+                <button type="button" className="logout-button" onClick={downloadSpeakingReport}>
+                  <Download size={16} /> Download nhan xet (.docx)
+                </button>
                 <div className="score-grid">
                   <span>Overall: {scoreResult.overallBand}</span>
                   <span>Fluency: {scoreResult.fluencyCoherence}</span>

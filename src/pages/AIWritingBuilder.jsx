@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, FileUp, Sparkles, ClipboardCheck, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, FileUp, Sparkles, ClipboardCheck, Image as ImageIcon, Download } from 'lucide-react';
 import mammoth from 'mammoth';
 import { unzipSync, strFromU8 } from 'fflate';
 import * as XLSX from 'xlsx';
 import aiService from '../services/GeminiService';
 import audioManager from '../services/AudioManager';
+import { downloadDocxReport } from '../utils/docxReport';
 import '../styles/AISpeakingBuilder.css';
 
 const WRITING_LOCAL_STORAGE_KEY = 'ielts_writing_drafts_v1';
@@ -548,6 +548,53 @@ const AIWritingBuilder = () => {
     saveLocalDrafts(next);
   };
 
+  const downloadWritingReport = () => {
+    if (!scoreResult) return;
+    const scoreRows = [
+      { label: 'Overall Band', value: scoreResult.overallBand ?? '-' },
+      { label: 'Task', value: scoreResult.taskResponse ?? scoreResult.taskAchievement ?? '-' },
+      { label: 'Coherence & Cohesion', value: scoreResult.coherenceCohesion ?? '-' },
+      { label: 'Lexical Resource', value: scoreResult.lexicalResource ?? '-' },
+      { label: 'Grammar Range & Accuracy', value: scoreResult.grammarRangeAccuracy ?? '-' },
+      { label: 'Word Count', value: scoreResult.wordCount ?? '-' }
+    ];
+
+    const sections = [
+      { heading: 'Task nhan dien', lines: [scoreResult.detectedTaskType || '-'] },
+      { heading: 'Nhan xet tong quan', lines: [scoreResult.feedback || '-'] },
+      { heading: 'Chi tiet 4 tieu chi', lines: [scoreResult.bandDescriptors || '-'] },
+      { heading: 'Loi ngu phap chinh', lines: [scoreResult.grammarIssues || '-'] },
+      { heading: 'Sua cau goi y', lines: [scoreResult.sentenceCorrections || '-'] },
+      { heading: 'Ke hoach cai thien', lines: [scoreResult.improvementPlan || '-'] },
+      { heading: 'Bai mau cai thien', lines: [scoreResult.improvedSample || '-'] }
+    ];
+
+    if (scoreResult.wordCountWarning) {
+      sections.push({ heading: 'Canh bao so tu', lines: [scoreResult.wordCountWarning] });
+    }
+    if (scoreResult.missingOrUnclearDetails) {
+      sections.push({ heading: 'Missing / unclear', lines: [scoreResult.missingOrUnclearDetails] });
+    }
+    if (scoreResult.sanityCheck) {
+      sections.push({
+        heading: 'Sanity check',
+        lines: [
+          `Confirmed band: ${scoreResult.sanityCheck.confirmedBand ?? '-'}`,
+          `Consistent: ${String(scoreResult.sanityCheck.consistent)}`,
+          `Note: ${scoreResult.sanityCheck.note || '-'}`
+        ]
+      });
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadDocxReport({
+      fileName: `writing-feedback-${stamp}.docx`,
+      title: 'IELTS Writing Feedback Report',
+      scoreRows,
+      sections
+    });
+  };
+
   const isStudent = user?.role === 'student';
   const taskMeta = getTaskMeta(taskType);
 
@@ -822,6 +869,9 @@ const AIWritingBuilder = () => {
               <p>Chưa có kết quả. Hãy viết bài và bấm "Chấm IELTS Writing".</p>
             ) : (
               <div className="result-box score-box">
+                <button type="button" className="logout-button" onClick={downloadWritingReport}>
+                  <Download size={16} /> Download nhan xet (.docx)
+                </button>
                 <div className="score-grid">
                   <span>Overall: {scoreResult.overallBand}</span>
                   <span>Task: {scoreResult.taskResponse ?? scoreResult.taskAchievement}</span>

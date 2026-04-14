@@ -10,7 +10,8 @@ class AIService {
     }
     this.openaiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
     this.openaiModel = 'gpt-4o';
-    this.openaiIeltsModel = 'gpt-4.1';
+    this.openaiIeltsModel = import.meta.env.VITE_OPENAI_IELTS_MODEL || 'gpt-5';
+    this.openaiIeltsFallbackModel = 'gpt-4.1';
     this.openaiVisionModel = 'gpt-4.1';
     AIService._instance = this;
   }
@@ -424,6 +425,51 @@ class AIService {
     throw new Error('AI trả về JSON không hợp lệ. Vui lòng thử chấm lại.');
   }
 
+  _normalizeBandScore(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    const clamped = Math.min(9, Math.max(0, n));
+    return Math.round(clamped * 2) / 2;
+  }
+
+  _normalizeSpeakingScorePayload(rawScore) {
+    const src = rawScore && typeof rawScore === 'object' ? rawScore : {};
+    const fluency = this._normalizeBandScore(
+      src.fluencyCoherence ?? src.fluency ?? src.fluency_and_coherence
+    );
+    const lexical = this._normalizeBandScore(
+      src.lexicalResource ?? src.lexical ?? src.lexical_resource
+    );
+    const grammar = this._normalizeBandScore(
+      src.grammarRangeAccuracy ?? src.grammar ?? src.grammar_range_accuracy
+    );
+    const pronunciation = this._normalizeBandScore(
+      src.pronunciation ?? src.pronounce ?? src.pronunciationScore
+    );
+    const overallInput = this._normalizeBandScore(
+      src.overallBand ?? src.overall ?? src.overall_score
+    );
+    const bands = [fluency, lexical, grammar, pronunciation].filter((x) => Number.isFinite(x));
+    const computedOverall = bands.length
+      ? this._normalizeBandScore(bands.reduce((sum, x) => sum + x, 0) / bands.length)
+      : null;
+    const overallBand = overallInput ?? computedOverall;
+
+    const feedback = String(src.feedback || src.comment || '').trim();
+    const improvedSample = String(src.improvedSample || src.sample || src.modelAnswer || '').trim();
+
+    return {
+      ...src,
+      overallBand: overallBand ?? 0,
+      fluencyCoherence: fluency ?? 0,
+      lexicalResource: lexical ?? 0,
+      grammarRangeAccuracy: grammar ?? 0,
+      pronunciation: pronunciation ?? 0,
+      feedback: feedback || 'Can them du lieu de nhan xet. Hay thu cham lai voi doan noi dai hon.',
+      improvedSample: improvedSample || 'Please provide a longer, clearer response so I can generate a better improved sample.'
+    };
+  }
+
   /**
    * Generate a response using OpenAI GPT-4o
    */
@@ -480,29 +526,41 @@ Khi được yêu cầu tạo bộ câu hỏi cho game, hãy trả về dạng J
   /**
    * Transcribe speaking audio to text with OpenAI
    */
-  async transcribeAudio(audioBlob) {
+  async transcribeAudio(audioBlob, referenceText = '') {
     try {
-      const formData = new FormData();
-      formData.append('file', audioBlob, 'speaking.webm');
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'en');
+      const hint = String(referenceText || '').trim().slice(0, 700);
+      const transcribeOnce = async (useLanguage = true) => {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'speaking.webm');
+        formData.append('model', 'whisper-1');
+        if (useLanguage) formData.append('language', 'en');
+        if (hint) formData.append('prompt', `Expected script context (English): ${hint}`);
 
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.openaiKey}`
-        },
-        body: formData
-      });
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.openaiKey}`
+          },
+          body: formData
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMsg = errorData.error?.message || `HTTP ${response.status}`;
-        throw new Error(`OpenAI Transcription Error: ${errorMsg}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMsg = errorData.error?.message || `HTTP ${response.status}`;
+          throw new Error(`OpenAI Transcription Error: ${errorMsg}`);
+        }
+
+        const data = await response.json();
+        return String(data.text || '').trim();
+      };
+
+      let text = await transcribeOnce(true);
+      const tooShort = text.split(/\s+/).filter(Boolean).length <= 4;
+      const genericOutro = /^thank you for watching\.?$/i.test(text);
+      if ((tooShort || genericOutro) && hint) {
+        text = await transcribeOnce(false);
       }
-
-      const data = await response.json();
-      return data.text || '';
+      return text;
     } catch (error) {
       console.error('Transcribe Error:', error);
       throw new Error(`Không thể chuyển giọng nói thành văn bản: ${error.message}`);
@@ -643,8 +701,7 @@ Scoring rules:
         body: JSON.stringify({
           model: this.openaiIeltsModel,
           messages: [{ role: 'user', content: scoringPrompt }],
-          temperature: 0.2,
-          max_tokens: 700,
+          max_completion_tokens: 700,
           response_format: { type: 'json_object' }
         })
       });
@@ -657,7 +714,8 @@ Scoring rules:
 
       const data = await response.json();
       const raw = data.choices?.[0]?.message?.content || '{}';
-      return JSON.parse(raw);
+      const parsed = this.safeParseJson(raw);
+      return this._normalizeSpeakingScorePayload(parsed);
     } catch (error) {
       console.error('Speaking Score Error:', error);
       throw new Error(`Không thể chấm điểm speaking: ${error.message}`);
@@ -727,7 +785,69 @@ Transcript:
 ${text}
 `;
 
-      const callScoreApi = async (promptText, maxTokens = 900) => {
+      const speakingSchema = {
+        name: 'ielts_speaking_scoring_v2',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            overallBand: { type: 'number' },
+            fluencyCoherence: { type: 'number' },
+            lexicalResource: { type: 'number' },
+            grammarRangeAccuracy: { type: 'number' },
+            pronunciation: { type: 'number' },
+            feedback: { type: 'string' },
+            strengths: { type: 'string' },
+            improvements: { type: 'string' },
+            improvedSample: { type: 'string' },
+            pronunciationIssues: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  spoken: { type: 'string' },
+                  likelyTarget: { type: 'string' },
+                  issueType: { type: 'string' },
+                  why: { type: 'string' },
+                  practiceTip: { type: 'string' }
+                },
+                required: ['spoken', 'likelyTarget', 'issueType', 'why', 'practiceTip']
+              }
+            },
+            languageIssues: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  original: { type: 'string' },
+                  improved: { type: 'string' },
+                  issueType: { type: 'string' },
+                  why: { type: 'string' }
+                },
+                required: ['original', 'improved', 'issueType', 'why']
+              }
+            }
+          },
+          required: [
+            'overallBand',
+            'fluencyCoherence',
+            'lexicalResource',
+            'grammarRangeAccuracy',
+            'pronunciation',
+            'feedback',
+            'strengths',
+            'improvements',
+            'improvedSample',
+            'pronunciationIssues',
+            'languageIssues'
+          ]
+        }
+      };
+
+      const callScoreApi = async (promptText, maxTokens = 900, model = this.openaiIeltsModel) => {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -735,11 +855,11 @@ ${text}
             Authorization: `Bearer ${this.openaiKey}`
           },
           body: JSON.stringify({
-            model: this.openaiIeltsModel,
+            model,
             messages: [{ role: 'user', content: promptText }],
-            temperature: 0.2,
+            temperature: 0.0,
             max_tokens: maxTokens,
-            response_format: { type: 'json_object' }
+            response_format: { type: 'json_schema', json_schema: speakingSchema }
           })
         });
 
@@ -767,18 +887,80 @@ CRITICAL JSON OUTPUT RULE:
 - No markdown, no explanation outside JSON.
 `;
 
-      const first = await callScoreApi(scoringPrompt, 1200);
+      let first;
+      try {
+        first = await callScoreApi(scoringPrompt, 1200, this.openaiIeltsModel);
+      } catch {
+        first = await callScoreApi(scoringPrompt, 1200, this.openaiIeltsFallbackModel);
+      }
       let parsed;
       try {
         parsed = this.safeParseJson(first.raw);
       } catch (firstErr) {
         // Retry with stricter compact instruction to avoid broken/truncated JSON.
-        const retry = await callScoreApi(`${scoringPrompt}${compactJsonHint}`, 1400);
+        let retry;
+        try {
+          retry = await callScoreApi(`${scoringPrompt}${compactJsonHint}`, 1400, this.openaiIeltsModel);
+        } catch {
+          retry = await callScoreApi(`${scoringPrompt}${compactJsonHint}`, 1400, this.openaiIeltsFallbackModel);
+        }
         try {
           parsed = this.safeParseJson(retry.raw);
         } catch {
           throw firstErr;
         }
+      }
+
+      const sanitySchema = {
+        name: 'ielts_speaking_sanity_check_v1',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            confirmedBand: { type: 'number' },
+            consistent: { type: 'boolean' },
+            note: { type: 'string' }
+          },
+          required: ['confirmedBand', 'consistent', 'note']
+        }
+      };
+      const sanityPrompt = `You are a strict IELTS speaking QA reviewer.
+Given transcript and draft scoring JSON, verify whether overall band is consistent with evidence.
+Return ONLY JSON.
+
+Transcript:
+${text}
+
+Draft scoring JSON:
+${JSON.stringify(parsed)}
+`;
+      try {
+        const sanityResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.openaiKey}`
+          },
+          body: JSON.stringify({
+            model: this.openaiIeltsModel,
+            messages: [{ role: 'user', content: sanityPrompt }],
+            temperature: 0.0,
+            max_tokens: 300,
+            response_format: { type: 'json_schema', json_schema: sanitySchema }
+          })
+        });
+        if (sanityResponse.ok) {
+          const sanityData = await sanityResponse.json();
+          const sanityRaw = sanityData.choices?.[0]?.message?.content || '{}';
+          const sanity = this.safeParseJson(sanityRaw);
+          parsed.sanityCheck = sanity;
+          if (Number.isFinite(sanity.confirmedBand) && sanity.consistent === false) {
+            parsed.overallBand = sanity.confirmedBand;
+          }
+        }
+      } catch {
+        // Keep first pass if sanity-check fails.
       }
 
       parsed.pronunciationIssues = Array.isArray(parsed.pronunciationIssues) ? parsed.pronunciationIssues : [];
@@ -963,7 +1145,58 @@ ${cleanedEssay || '(No typed text. Extract from image if provided.)'}
           ]
         : scoringPrompt;
 
-      const callScoreApi = async (content, maxTokens) => {
+      const writingSchema = {
+        name: 'ielts_writing_scoring_v2',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            detectedTaskType: { type: 'string' },
+            confidence: { type: 'number' },
+            reconstructedPrompt: { type: 'string' },
+            missingOrUnclearDetails: { type: 'string' },
+            overallBand: { type: 'number' },
+            taskResponse: { type: ['number', 'null'] },
+            taskAchievement: { type: ['number', 'null'] },
+            coherenceCohesion: { type: 'number' },
+            lexicalResource: { type: 'number' },
+            grammarRangeAccuracy: { type: 'number' },
+            wordCount: { type: 'number' },
+            wordCountWarning: { type: 'string' },
+            taskWeightingNote: { type: 'string' },
+            feedback: { type: 'string' },
+            bandDescriptors: { type: 'string' },
+            grammarIssues: { type: 'string' },
+            sentenceCorrections: { type: 'string' },
+            improvementPlan: { type: 'string' },
+            improvedSample: { type: 'string' }
+          },
+          required: [
+            'detectedTaskType',
+            'confidence',
+            'reconstructedPrompt',
+            'missingOrUnclearDetails',
+            'overallBand',
+            'taskResponse',
+            'taskAchievement',
+            'coherenceCohesion',
+            'lexicalResource',
+            'grammarRangeAccuracy',
+            'wordCount',
+            'wordCountWarning',
+            'taskWeightingNote',
+            'feedback',
+            'bandDescriptors',
+            'grammarIssues',
+            'sentenceCorrections',
+            'improvementPlan',
+            'improvedSample'
+          ]
+        }
+      };
+
+      const callScoreApi = async (content, maxTokens, modelOverride) => {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -971,11 +1204,11 @@ ${cleanedEssay || '(No typed text. Extract from image if provided.)'}
             Authorization: `Bearer ${this.openaiKey}`
           },
           body: JSON.stringify({
-            model: hasImages ? this.openaiVisionModel : this.openaiIeltsModel,
+            model: modelOverride || (hasImages ? this.openaiVisionModel : this.openaiIeltsModel),
             messages: [{ role: 'user', content }],
-            temperature: 0.2,
+            temperature: 0.0,
             max_tokens: maxTokens,
-            response_format: { type: 'json_object' }
+            response_format: { type: 'json_schema', json_schema: writingSchema }
           })
         });
 
@@ -997,7 +1230,14 @@ ${cleanedEssay || '(No typed text. Extract from image if provided.)'}
         + 'improvementPlan<=380, improvedSample<=980, reconstructedPrompt<=380, missingOrUnclearDetails<=320. '
         + 'No markdown fences.';
 
-      let { raw, finishReason } = await callScoreApi(userContent, 8192);
+      let firstCall;
+      try {
+        firstCall = await callScoreApi(userContent, 8192);
+      } catch {
+        // Fallback for unavailable/unsupported model.
+        firstCall = await callScoreApi(userContent, 8192, this.openaiIeltsFallbackModel);
+      }
+      let { raw, finishReason } = firstCall;
       let parsed;
       try {
         parsed = this.safeParseJson(raw);
@@ -1012,10 +1252,19 @@ ${cleanedEssay || '(No typed text. Extract from image if provided.)'}
             ]
           : `${scoringPrompt}${compactHint}`;
         try {
-          const second = await callScoreApi(
-            retryContent,
-            finishReason === 'length' ? 8192 : 6144
-          );
+          let second;
+          try {
+            second = await callScoreApi(
+              retryContent,
+              finishReason === 'length' ? 8192 : 6144
+            );
+          } catch {
+            second = await callScoreApi(
+              retryContent,
+              finishReason === 'length' ? 8192 : 6144,
+              this.openaiIeltsFallbackModel
+            );
+          }
           parsed = this.safeParseJson(second.raw);
         } catch {
           throw firstErr;
@@ -1079,6 +1328,62 @@ ${cleanedEssay || '(No typed text. Extract from image if provided.)'}
         parsed.missingOrUnclearDetails = existingNote
           ? `${existingNote}\n${promptMissingNote}`
           : promptMissingNote;
+      }
+
+      // Pass 2 sanity-check for score consistency
+      const sanitySchema = {
+        name: 'ielts_writing_sanity_check_v1',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            confirmedBand: { type: 'number' },
+            consistent: { type: 'boolean' },
+            note: { type: 'string' }
+          },
+          required: ['confirmedBand', 'consistent', 'note']
+        }
+      };
+      const sanityPrompt = `You are a strict IELTS writing QA reviewer.
+Given the original essay/prompt and draft score JSON, check whether overall band is consistent with evidence.
+Return ONLY JSON.
+
+Prompt:
+${normalizedPrompt || '(none)'}
+
+Essay:
+${cleanedEssay}
+
+Draft score JSON:
+${JSON.stringify(parsed)}
+`;
+      try {
+        const sanityResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.openaiKey}`
+          },
+          body: JSON.stringify({
+            model: hasImages ? this.openaiVisionModel : this.openaiIeltsModel,
+            messages: [{ role: 'user', content: sanityPrompt }],
+            temperature: 0.0,
+            max_tokens: 320,
+            response_format: { type: 'json_schema', json_schema: sanitySchema }
+          })
+        });
+        if (sanityResponse.ok) {
+          const sanityData = await sanityResponse.json();
+          const sanityRaw = sanityData.choices?.[0]?.message?.content || '{}';
+          const sanity = this.safeParseJson(sanityRaw);
+          parsed.sanityCheck = sanity;
+          if (Number.isFinite(sanity.confirmedBand) && sanity.consistent === false) {
+            parsed.overallBand = sanity.confirmedBand;
+          }
+        }
+      } catch {
+        // Keep pass-1 score if sanity-check fails.
       }
       return parsed;
     } catch (error) {
