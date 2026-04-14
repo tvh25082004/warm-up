@@ -692,7 +692,24 @@ Return ONLY valid JSON with this schema (no markdown fences):
   "feedback": "clear actionable feedback in Vietnamese",
   "strengths": "2-4 bullet-style sentences in Vietnamese",
   "improvements": "2-4 bullet-style sentences in Vietnamese",
-  "improvedSample": "a natural improved English answer of similar length and intent"
+  "improvedSample": "a natural improved English answer of similar length and intent",
+  "pronunciationIssues": [
+    {
+      "spoken": "word/phrase in transcript",
+      "likelyTarget": "likely intended form",
+      "issueType": "mispronounced | unclear | stress | ending_sound",
+      "why": "short Vietnamese explanation",
+      "practiceTip": "short drill tip in Vietnamese"
+    }
+  ],
+  "languageIssues": [
+    {
+      "original": "wrong phrase from transcript",
+      "improved": "better phrase",
+      "issueType": "grammar | collocation | word_choice | coherence",
+      "why": "short Vietnamese explanation"
+    }
+  ]
 }
 
 Scoring rules:
@@ -701,36 +718,72 @@ Scoring rules:
 - overallBand = average of the four criteria, rounded to nearest 0.5.
 - If the transcript is too short to assess (< 20 words), lower bands and explain in feedback.
 - If no task is given, assess as a general speaking sample (still use all four criteria).
+- pronunciationIssues: return 3-8 items where possible. If confidence is low, still provide best-effort + mark issueType as "unclear".
+- languageIssues: return 3-8 concrete phrase-level fixes from transcript text.
+- Do not leave arrays null; return [] when none.
 ${cue ? `\nTask / cue card / question the candidate was answering:\n${cue}\n` : '\n(No specific task text — assess as a general speaking sample.)\n'}
 
 Transcript:
 ${text}
 `;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.openaiKey}`
-        },
-        body: JSON.stringify({
-          model: this.openaiIeltsModel,
-          messages: [{ role: 'user', content: scoringPrompt }],
-          temperature: 0.2,
-          max_tokens: 900,
-          response_format: { type: 'json_object' }
-        })
-      });
+      const callScoreApi = async (promptText, maxTokens = 900) => {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.openaiKey}`
+          },
+          body: JSON.stringify({
+            model: this.openaiIeltsModel,
+            messages: [{ role: 'user', content: promptText }],
+            temperature: 0.2,
+            max_tokens: maxTokens,
+            response_format: { type: 'json_object' }
+          })
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMsg = errorData.error?.message || `HTTP ${response.status}`;
-        throw new Error(`OpenAI Speaking Score Error: ${errorMsg}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMsg = errorData.error?.message || `HTTP ${response.status}`;
+          throw new Error(`OpenAI Speaking Score Error: ${errorMsg}`);
+        }
+
+        const data = await response.json();
+        const choice = data.choices?.[0];
+        return {
+          raw: choice?.message?.content || '{}',
+          finishReason: choice?.finish_reason || ''
+        };
+      };
+
+      const compactJsonHint = `
+
+CRITICAL JSON OUTPUT RULE:
+- Return ONLY 1 JSON object with the same keys.
+- Keep strings concise:
+  feedback<=400 chars, strengths<=300, improvements<=300, improvedSample<=650.
+- pronunciationIssues max 6 items, languageIssues max 6 items.
+- No markdown, no explanation outside JSON.
+`;
+
+      const first = await callScoreApi(scoringPrompt, 1200);
+      let parsed;
+      try {
+        parsed = this.safeParseJson(first.raw);
+      } catch (firstErr) {
+        // Retry with stricter compact instruction to avoid broken/truncated JSON.
+        const retry = await callScoreApi(`${scoringPrompt}${compactJsonHint}`, 1400);
+        try {
+          parsed = this.safeParseJson(retry.raw);
+        } catch {
+          throw firstErr;
+        }
       }
 
-      const data = await response.json();
-      const raw = data.choices?.[0]?.message?.content || '{}';
-      return this.safeParseJson(raw);
+      parsed.pronunciationIssues = Array.isArray(parsed.pronunciationIssues) ? parsed.pronunciationIssues : [];
+      parsed.languageIssues = Array.isArray(parsed.languageIssues) ? parsed.languageIssues : [];
+      return parsed;
     } catch (error) {
       console.error('Speaking Freeform Score Error:', error);
       throw new Error(`Không thể chấm IELTS Speaking: ${error.message}`);

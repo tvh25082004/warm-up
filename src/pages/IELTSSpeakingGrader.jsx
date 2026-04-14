@@ -354,6 +354,35 @@ const IELTSSpeakingGrader = () => {
                   <p><strong>Cần cải thiện:</strong> {scoreResult.improvements}</p>
                 )}
                 <p><strong>Mau cai thien:</strong> {scoreResult.improvedSample}</p>
+                {Array.isArray(scoreResult.pronunciationIssues) && scoreResult.pronunciationIssues.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <h4 style={{ marginBottom: 8 }}>Chi tiet phat am can sua</h4>
+                    {scoreResult.pronunciationIssues.slice(0, 8).map((item, idx) => (
+                      <p key={`pro-${idx}`} style={{ margin: '6px 0' }}>
+                        <strong>{idx + 1}.</strong>{' '}
+                        <code>{item.spoken || '-'}</code>
+                        {' -> '}
+                        <code>{item.likelyTarget || '-'}</code>
+                        {item.issueType ? ` (${item.issueType})` : ''}. {item.why || ''}
+                        {item.practiceTip ? ` Tip: ${item.practiceTip}` : ''}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {Array.isArray(scoreResult.languageIssues) && scoreResult.languageIssues.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <h4 style={{ marginBottom: 8 }}>Cum tu/cau dung chua chuan</h4>
+                    {scoreResult.languageIssues.slice(0, 8).map((item, idx) => (
+                      <p key={`lang-${idx}`} style={{ margin: '6px 0' }}>
+                        <strong>{idx + 1}.</strong>{' '}
+                        <code>{item.original || '-'}</code>
+                        {' -> '}
+                        <code>{item.improved || '-'}</code>
+                        {item.issueType ? ` (${item.issueType})` : ''}. {item.why || ''}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
