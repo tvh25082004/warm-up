@@ -8,6 +8,7 @@ import QuestionBuilder from './pages/QuestionBuilder';
 import ImportQuestions from './pages/ImportQuestions';
 import AIVideoBuilder from './pages/AIVideoBuilder';
 import AISpeakingBuilder from './pages/AISpeakingBuilder';
+import AIWritingBuilder from './pages/AIWritingBuilder';
 import GameSetSelector from './pages/GameSetSelector';
 import MarioRiverGame from './pages/MarioRiverGame';
 import FlappyBirdGame from './pages/FlappyBirdGame';
@@ -19,7 +20,7 @@ import './App.css';
 function App() {
   useEffect(() => {
     const startMusic = () => {
-      if (window.location.pathname === '/builder/speaking-ai') {
+      if (window.location.pathname === '/builder/speaking-ai' || window.location.pathname === '/builder/writing-ai') {
         audioManager.stopBackgroundMusic();
         return;
       }
@@ -29,12 +30,12 @@ function App() {
       window.removeEventListener('touchstart', startMusic);
     };
 
-    if (window.location.pathname === '/builder/speaking-ai') {
+    if (window.location.pathname === '/builder/speaking-ai' || window.location.pathname === '/builder/writing-ai') {
       audioManager.stopBackgroundMusic();
     }
 
     // Try to auto-play immediately (works if user has previously interacted)
-    if (window.location.pathname !== '/builder/speaking-ai') {
+    if (window.location.pathname !== '/builder/speaking-ai' && window.location.pathname !== '/builder/writing-ai') {
       audioManager.startBackgroundMusic();
     }
 
@@ -67,6 +68,7 @@ function App() {
         <Route path="/builder" element={<QuestionBuilder />} />
         <Route path="/builder/video-ai" element={<AIVideoBuilder />} />
         <Route path="/builder/speaking-ai" element={<AISpeakingBuilder />} />
+        <Route path="/builder/writing-ai" element={<AIWritingBuilder />} />
         <Route path="/import" element={<ImportQuestions />} />
       </Routes>
     </BrowserRouter>

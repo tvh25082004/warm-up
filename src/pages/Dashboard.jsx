@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video, Mic, ClipboardList, TrendingUp, History } from 'lucide-react';
+import { BookOpen, Camera, Gamepad2, LogOut, FileUp, Video, Mic, ClipboardList, TrendingUp, History, PenLine } from 'lucide-react';
 import {
   STUDENT_ASSIGNMENTS_STORAGE_KEY,
   readStudentAssignmentsFromStorage,
@@ -258,6 +258,18 @@ const Dashboard = () => {
             </div>
             <h3>Luyện Speaking</h3>
             <p>Tạo bài luyện nói bằng AI với script + audio tiếng Anh chuẩn kèm subtitle chạy theo.</p>
+          </motion.div>
+
+          <motion.div
+            className="option-card builder-card glass-panel"
+            whileHover={{ scale: 1.03, y: -5 }}
+            onClick={() => navigate('/builder/writing-ai')}
+          >
+            <div className="icon-wrapper" style={{ background: 'linear-gradient(135deg,#F59E0B,#EF4444)' }}>
+              <PenLine size={40} color="white" />
+            </div>
+            <h3>IELTS Writing</h3>
+            <p>Tạo đề Writing bằng AI, upload tài liệu để tạo đề, viết bài trực tiếp và chấm theo rubric IELTS.</p>
           </motion.div>
             </div>
           </>
