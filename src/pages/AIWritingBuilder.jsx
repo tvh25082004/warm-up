@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, FileUp, Sparkles, ClipboardCheck, Image as ImageIcon } from 'lucide-react';
 import mammoth from 'mammoth';
+import { unzipSync, strFromU8 } from 'fflate';
 import * as XLSX from 'xlsx';
 import aiService from '../services/GeminiService';
 import audioManager from '../services/AudioManager';
@@ -56,6 +57,11 @@ const isExcelFile = (file, lowerName) =>
   || lowerName.endsWith('.xls')
   || EXCEL_MIME_TYPES.has(String(file?.type || '').toLowerCase());
 
+const isPagesFile = (file, lowerName) =>
+  lowerName.endsWith('.pages')
+  || String(file?.type || '').toLowerCase() === 'application/x-iwork-pages-sffpages'
+  || String(file?.type || '').toLowerCase() === 'application/vnd.apple.pages';
+
 
 const blobToBase64 = (blob) =>
   new Promise((resolve, reject) => {
@@ -66,6 +72,23 @@ const blobToBase64 = (blob) =>
   });
 
 const fileToBase64 = (file) => blobToBase64(file);
+
+const formatTableAsMarkdown = (rows) => {
+  if (!rows.length) return '';
+  const width = Math.max(...rows.map((r) => r.length));
+  const padded = rows.map((row) => {
+    const clone = [...row];
+    while (clone.length < width) clone.push('');
+    return clone.map((c) => String(c || '').trim());
+  });
+  const header = padded[0];
+  const body = padded.slice(1);
+  return [
+    `| ${header.join(' | ')} |`,
+    `| ${new Array(width).fill('---').join(' | ')} |`,
+    ...body.map((r) => `| ${r.join(' | ')} |`)
+  ].join('\n');
+};
 
 const extractTextFromDocx = async (arrayBuffer) => {
   const extractedImages = [];
@@ -98,34 +121,23 @@ const extractTextFromDocx = async (arrayBuffer) => {
   nodes.forEach((node) => {
     const tag = String(node.tagName || '').toLowerCase();
     if (tag === 'table') {
-      const rows = Array.from(node.querySelectorAll('tr'));
-      rows.forEach((row) => {
-        const cols = Array.from(row.querySelectorAll('th,td'))
-          .map((cell) => cell.textContent?.trim())
-          .filter(Boolean);
-        if (cols.length) segments.push(cols.join(' | '));
-      });
-      node.querySelectorAll('img').forEach((img) => {
-        const src = img.getAttribute('src');
-        if (src && src.startsWith('data:')) {
-          segments.push(`[Image attached — see vision input]`);
-        }
-      });
+      const rows = Array.from(node.querySelectorAll('tr'))
+        .map((row) => Array.from(row.querySelectorAll('th,td')).map((cell) => cell.textContent?.trim()))
+        .map((cols) => cols.filter(Boolean))
+        .filter((cols) => cols.length > 0);
+      const mdTable = formatTableAsMarkdown(rows);
+      if (mdTable) segments.push(mdTable);
       return;
     }
     const text = node.textContent?.trim();
     if (text) segments.push(text);
-    node.querySelectorAll('img').forEach((img) => {
-      const src = img.getAttribute('src');
-      if (src && src.startsWith('data:')) {
-        segments.push(`[Image attached — see vision input]`);
-      }
-    });
   });
 
-  const fallbackRaw = normalizeExtractedText(raw?.value || '');
+  // Always prefer HTML-parsed version (preserves markdown tables).
+  // Fall back to raw only if HTML parse produced nothing.
   const joined = normalizeExtractedText(segments.join('\n'));
-  const bestText = (!joined || fallbackRaw.length > joined.length) ? fallbackRaw : joined;
+  const fallbackRaw = normalizeExtractedText(raw?.value || '');
+  const bestText = joined || fallbackRaw;
   return { text: bestText, images: extractedImages };
 };
 
@@ -134,9 +146,49 @@ const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image
 const isImageFile = (file, lowerName) =>
   lowerName.match(/\.(png|jpg|jpeg|gif|webp)$/) || IMAGE_MIME_TYPES.has(String(file?.type || '').toLowerCase());
 
+const extractTextFromPages = async (arrayBuffer) => {
+  const extractedImages = [];
+  try {
+    const files = unzipSync(new Uint8Array(arrayBuffer));
+    const textChunks = [];
+    for (const [relPath, data] of Object.entries(files)) {
+      const lower = relPath.toLowerCase();
+      if (lower.endsWith('.xml') || lower.endsWith('.xhtml')) {
+        try {
+          const raw = strFromU8(data, true);
+          const doc = new DOMParser().parseFromString(raw, 'application/xml');
+          const parsedText = doc.documentElement?.textContent?.trim();
+          if (parsedText && parsedText.length > 15) textChunks.push(parsedText);
+        } catch {
+          // skip bad xml
+        }
+      }
+      if (/quicklook\/.+\.(png|jpe?g|webp)$/i.test(relPath) || /preview\.(png|jpe?g|webp)$/i.test(lower)) {
+        try {
+          const type = lower.endsWith('.png') ? 'image/png' : 'image/jpeg';
+          const blob = new Blob([data], { type });
+          const dataUri = await blobToBase64(blob);
+          extractedImages.push(dataUri);
+        } catch {
+          // skip
+        }
+      }
+    }
+    const text = normalizeExtractedText(textChunks.join('\n\n'));
+    return { text, images: extractedImages };
+  } catch {
+    return { text: '', images: [] };
+  }
+};
+
 const extractTextFromFile = async (file, options = {}) => {
   const { allowExcel = false } = options;
   const lowerName = file.name.toLowerCase();
+
+  if (isPagesFile(file, lowerName)) {
+    const arrayBuffer = await file.arrayBuffer();
+    return extractTextFromPages(arrayBuffer);
+  }
 
   if (isDocxFile(file, lowerName)) {
     const arrayBuffer = await file.arrayBuffer();
@@ -176,6 +228,7 @@ const AIWritingBuilder = () => {
   const navigate = useNavigate();
   const fileRef = useRef(null);
   const writeEssayFileRef = useRef(null);
+  const scorePromptFileRef = useRef(null);
   const scoreEssayFileRef = useRef(null);
 
   const [user, setUser] = useState(null);
@@ -187,7 +240,9 @@ const AIWritingBuilder = () => {
   const [documentImages, setDocumentImages] = useState([]);
   const [fileName, setFileName] = useState('');
   const [essayFileName, setEssayFileName] = useState('');
+  const [promptFileName, setPromptFileName] = useState('');
   const [essayImages, setEssayImages] = useState([]);
+  const [scoringPromptImages, setScoringPromptImages] = useState([]);
 
   const [generatedPrompt, setGeneratedPrompt] = useState('');
   const [writingText, setWritingText] = useState('');
@@ -224,7 +279,7 @@ const AIWritingBuilder = () => {
         setDocumentImages(result.images);
         return;
       }
-      alert('Chỉ hỗ trợ .docx, .txt, .xlsx, .xls, .png, .jpg, .jpeg');
+      alert('Ch\u1ec9 h\u1ed7 tr\u1ee3 .docx, .txt, .pages, .xlsx, .xls, .png, .jpg, .jpeg, .webp');
     } catch (error) {
       console.error(error);
       alert('Không thể đọc file. Vui lòng kiểm tra lại định dạng.');
@@ -267,14 +322,145 @@ const AIWritingBuilder = () => {
     try {
       const result = await extractTextFromFile(file, { allowExcel: false });
       if (result.text || result.images.length > 0) {
-        setWritingText(result.text);
+        let nextEssayText = result.text;
+        const hasExistingPrompt = Boolean(generatedPrompt.trim());
+        const isImageUpload = result.images.length > 0;
+        const rawFromDoc = String(result.text || '').trim();
+        const shouldTryPromptEssaySplit =
+          !hasExistingPrompt
+          && !isImageUpload
+          && rawFromDoc.length > 0
+          && !/^\[Image uploaded/i.test(rawFromDoc);
+
+        if (isImageUpload) {
+          const essayOcr = await aiService.extractIeltsEssayFromImages(result.images);
+          if (essayOcr.trim()) nextEssayText = essayOcr.trim();
+        }
+
+        if (shouldTryPromptEssaySplit) {
+          const splitResult = await aiService.extractPromptAndEssayFromUpload({
+            taskType,
+            rawText: result.text
+          });
+          const splitPrompt = splitResult?.prompt?.trim() || '';
+          const splitEssay = splitResult?.essay?.trim() || '';
+
+          if (splitPrompt) {
+            setScoringPrompt(splitPrompt);
+            setGeneratedPrompt(splitPrompt);
+            nextEssayText = splitEssay || '';
+          } else {
+            nextEssayText = splitEssay || result.text;
+          }
+        } else if (!isImageUpload && rawFromDoc) {
+          nextEssayText = normalizeExtractedText(rawFromDoc);
+        }
+        setWritingText(nextEssayText);
         setEssayImages(result.images);
         return;
       }
-      alert('Upload bài viết chỉ hỗ trợ .docx, .txt hoặc ảnh (.png, .jpg)');
+      alert('Upload b\u00e0i vi\u1ebft: .docx, .txt, .pages ho\u1eb7c \u1ea3nh (.png, .jpg, .webp)');
     } catch (error) {
       console.error(error);
       alert('Không thể đọc file bài viết. Vui lòng kiểm tra lại.');
+    }
+  };
+
+  const handleScorePromptUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = '';
+    setPromptFileName(file.name);
+
+    try {
+      const result = await extractTextFromFile(file, { allowExcel: false });
+      if (!String(result.text || '').trim() && result.images.length === 0) {
+        alert('Kh\u00f4ng \u0111\u1ecdc \u0111\u01b0\u1ee3c file \u0111\u1ec1. D\u00f9ng .docx, .txt, .pages ho\u1eb7c \u1ea3nh.');
+        return;
+      }
+
+      const images = result.images;
+      setScoringPromptImages(images);
+
+      let text = String(result.text || '').trim();
+      if (/^\[Image uploaded/i.test(text)) text = '';
+
+      if (images.length > 0) {
+        const needOcr = !text || text.length < 40;
+        if (needOcr) {
+          const ocr = await aiService.extractIeltsPromptFromImages(images);
+          if (ocr.trim()) text = ocr.trim();
+        }
+      }
+
+      if (text) {
+        setScoringPrompt(text);
+        setGeneratedPrompt(text);
+      } else if (isPagesFile(file, file.name.toLowerCase())) {
+        alert(
+          'Kh\u00f4ng tr\u00edch \u0111\u01b0\u1ee3c ch\u1eef t\u1eeb Pages (b\u1ea3n m\u1edbi c\u1ee7a Apple th\u01b0\u1eddng kh\u00f3 \u0111\u1ecdc trong tr\u00ecnh duy\u1ec7t). '
+          + 'Xu\u1ea5t sang Word (.docx) ho\u1eb7c ch\u1ee5p \u1ea3nh \u0111\u1ec1; \u1ea3nh \u0111\u00e3 n\u1ea1p v\u1eabn d\u00f9ng \u0111\u01b0\u1ee3c khi ch\u1ea5m.'
+        );
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Kh\u00f4ng th\u1ec3 \u0111\u1ecdc file \u0111\u1ec1.');
+    }
+  };
+
+  const handleScoreEssayUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = '';
+    setEssayFileName(file.name);
+    const hasSeparatePrompt = Boolean(scoringPrompt.trim()) || scoringPromptImages.length > 0;
+
+    try {
+      const result = await extractTextFromFile(file, { allowExcel: false });
+      if (!String(result.text || '').trim() && result.images.length === 0) {
+        alert('Kh\u00f4ng \u0111\u1ecdc \u0111\u01b0\u1ee3c b\u00e0i l\u00e0m. D\u00f9ng .docx, .txt, .pages ho\u1eb7c \u1ea3nh.');
+        return;
+      }
+
+      setEssayImages(result.images);
+      let nextEssayText = String(result.text || '').trim();
+
+      if (result.images.length > 0) {
+        const essayOcr = await aiService.extractIeltsEssayFromImages(result.images);
+        if (essayOcr.trim()) nextEssayText = essayOcr.trim();
+        else if (/^\[Image uploaded/i.test(nextEssayText)) nextEssayText = '';
+      }
+
+      const rawText = String(result.text || '').trim();
+      const shouldTryPromptEssaySplit =
+        !hasSeparatePrompt
+        && rawText.length > 0
+        && !result.images.length
+        && !/^\[Image uploaded/i.test(rawText);
+
+      if (shouldTryPromptEssaySplit) {
+        const splitResult = await aiService.extractPromptAndEssayFromUpload({
+          taskType,
+          rawText: result.text
+        });
+        const splitPrompt = splitResult?.prompt?.trim() || '';
+        const splitEssay = splitResult?.essay?.trim() || '';
+
+        if (splitPrompt) {
+          setScoringPrompt(splitPrompt);
+          setGeneratedPrompt(splitPrompt);
+          nextEssayText = splitEssay || '';
+        } else {
+          nextEssayText = splitEssay || result.text;
+        }
+      } else if (rawText && !result.images.length) {
+        nextEssayText = normalizeExtractedText(rawText);
+      }
+
+      setWritingText(nextEssayText);
+    } catch (error) {
+      console.error(error);
+      alert('Kh\u00f4ng th\u1ec3 \u0111\u1ecdc file b\u00e0i l\u00e0m.');
     }
   };
 
@@ -288,7 +474,7 @@ const AIWritingBuilder = () => {
 
     setIsScoring(true);
     try {
-      const allImages = [...documentImages, ...essayImages];
+      const allImages = [...scoringPromptImages, ...essayImages, ...documentImages];
       const score = await aiService.scoreWritingIelts({
         taskType,
         gradingMode,
@@ -325,11 +511,33 @@ const AIWritingBuilder = () => {
     alert('Đã lưu bài viết.');
   };
 
+  const saveDraftFromScore = () => {
+    if (!writingText.trim()) {
+      alert('Chưa có bài viết để lưu.');
+      return;
+    }
+    const promptToSave = scoringPrompt.trim() || generatedPrompt.trim();
+    const item = {
+      id: Date.now(),
+      taskType,
+      prompt: promptToSave,
+      essay: writingText.trim(),
+      createdAt: new Date().toISOString()
+    };
+    const next = [item, ...savedDrafts].slice(0, 50);
+    setSavedDrafts(next);
+    saveLocalDrafts(next);
+    setActiveTab('saved');
+    alert('Đã lưu bài chấm và chuyển sang tab Đã lưu.');
+  };
+
   const openDraft = (item) => {
     setTaskType(item.taskType || 'task2');
     setGeneratedPrompt(item.prompt || '');
     setScoringPrompt(item.prompt || '');
     setWritingText(item.essay || '');
+    setScoringPromptImages([]);
+    setPromptFileName('');
     setScoreResult(null);
     setActiveTab('write');
   };
@@ -396,7 +604,7 @@ const AIWritingBuilder = () => {
                 <FileUp size={18} /> Upload document / ảnh / excel
               </button>
               <span>{fileName || 'Hỗ trợ: .docx, .txt, .xlsx, .xls, .png, .jpg'}</span>
-              <input ref={fileRef} type="file" accept=".docx,.txt,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.webp" onChange={handleUpload} style={{ display: 'none' }} />
+              <input ref={fileRef} type="file" accept=".docx,.txt,.pages,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.webp" onChange={handleUpload} style={{ display: 'none' }} />
             </div>
             {documentImages.length > 0 && (
               <div className="doc-preview" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
@@ -443,11 +651,11 @@ const AIWritingBuilder = () => {
               <button className="logout-button" onClick={() => writeEssayFileRef.current?.click()}>
                 <FileUp size={18} /> Upload bài viết
               </button>
-              <span>{essayFileName || 'Hỗ trợ: .docx, .txt, .png, .jpg'}</span>
+              <span>{essayFileName || 'Hỗ trợ: .docx, .txt, .pages, ảnh'}</span>
               <input
                 ref={writeEssayFileRef}
                 type="file"
-                accept=".docx,.txt,.png,.jpg,.jpeg"
+                accept=".docx,.txt,.pages,.png,.jpg,.jpeg,.gif,.webp"
                 onChange={handleUploadEssay}
                 style={{ display: 'none' }}
               />
@@ -519,28 +727,69 @@ const AIWritingBuilder = () => {
 
             <div className="result-box" style={{ marginBottom: 12 }}>
               <h4>Bài viết cần chấm</h4>
+              <p style={{ margin: '0 0 10px', color: '#6b7280', fontSize: 14 }}>
+                Tách riêng đề bài và bài làm (ảnh, .docx, .pages). Sau khi trích xuất bạn vẫn sửa trực tiếp tại đây.
+              </p>
+
+              <h4 style={{ margin: '14px 0 8px', fontSize: 15 }}>Đề bài (task)</h4>
+              <textarea
+                className="text-input"
+                rows={5}
+                placeholder="Đề IELTS sau khi upload hoặc nhập tay..."
+                value={scoringPrompt}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setScoringPrompt(v);
+                  setGeneratedPrompt(v);
+                }}
+                style={{ marginBottom: 10 }}
+              />
               <div className="upload-row">
-                <button className="logout-button" onClick={() => scoreEssayFileRef.current?.click()}>
-                  <FileUp size={18} /> Upload bài viết
+                <button type="button" className="logout-button" onClick={() => scorePromptFileRef.current?.click()}>
+                  <FileUp size={18} /> Upload đề bài
                 </button>
-                <span>{essayFileName ? `Đã nạp: ${essayFileName}` : 'Hỗ trợ: .docx, .txt, .png, .jpg'}</span>
+                <span>
+                  {promptFileName ? `Đã nạp đề: ${promptFileName}` : 'ảnh / .docx / .pages / .txt'}
+                </span>
+                <input
+                  ref={scorePromptFileRef}
+                  type="file"
+                  accept=".docx,.txt,.pages,.png,.jpg,.jpeg,.gif,.webp"
+                  onChange={handleScorePromptUpload}
+                  style={{ display: 'none' }}
+                />
+              </div>
+              {scoringPromptImages.length > 0 && (
+                <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+                  <ImageIcon size={13} style={{ marginRight: 4 }} />
+                  {scoringPromptImages.length} ảnh đính kèm đề (đưa vào bước chấm)
+                </div>
+              )}
+
+              <h4 style={{ margin: '16px 0 8px', fontSize: 15 }}>Bài làm (essay)</h4>
+              <div className="upload-row">
+                <button type="button" className="logout-button" onClick={() => scoreEssayFileRef.current?.click()}>
+                  <FileUp size={18} /> Upload bài làm
+                </button>
+                <span>{essayFileName ? `Đã nạp bài: ${essayFileName}` : 'ảnh / .docx / .pages / .txt'}</span>
                 <input
                   ref={scoreEssayFileRef}
                   type="file"
-                  accept=".docx,.txt,.png,.jpg,.jpeg"
-                  onChange={handleUploadEssay}
+                  accept=".docx,.txt,.pages,.png,.jpg,.jpeg,.gif,.webp"
+                  onChange={handleScoreEssayUpload}
                   style={{ display: 'none' }}
                 />
               </div>
               {essayImages.length > 0 && (
                 <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
-                  <ImageIcon size={13} style={{ marginRight: 4 }} />{essayImages.length} ảnh bài viết đã nhận
+                  <ImageIcon size={13} style={{ marginRight: 4 }} />
+                  {essayImages.length} ảnh bài làm đã nhận
                 </div>
               )}
               <textarea
                 className="text-input"
                 rows={10}
-                placeholder="Dán bài viết của học sinh tại đây..."
+                placeholder="Bài viết học sinh sau khi upload hoặc dán vào đây..."
                 value={writingText}
                 onChange={(e) => setWritingText(e.target.value)}
               />
@@ -561,8 +810,11 @@ const AIWritingBuilder = () => {
               <p style={{ margin: '8px 0 0', color: '#6b7280' }}>
                 Bạn có thể ép mode chấm. Nếu để tự động, hệ thống tự nhận diện loại task rồi chấm.
               </p>
-              <button className="logout-button" onClick={handleScoreWriting} disabled={isScoring || !writingText.trim()}>
+              <button className="logout-button" onClick={handleScoreWriting} disabled={isScoring || (!writingText.trim() && essayImages.length === 0)}>
                 <Sparkles size={16} /> {isScoring ? 'Đang chấm IELTS...' : 'Chấm IELTS Writing'}
+              </button>
+              <button className="logout-button" onClick={saveDraftFromScore} disabled={!writingText.trim()}>
+                <ClipboardCheck size={16} /> Lưu vào Đã lưu
               </button>
             </div>
 

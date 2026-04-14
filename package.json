@@ -10,8 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1",
     "@google/generative-ai": "^0.24.1",
     "canvas-confetti": "^1.9.4",
+    "fflate": "^0.8.2",
     "framer-motion": "^12.38.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.12.0",
