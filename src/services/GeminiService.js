@@ -10,6 +10,8 @@ class AIService {
     }
     this.openaiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
     this.openaiModel = 'gpt-4o';
+    this.openaiIeltsModel = 'gpt-4.1';
+    this.openaiVisionModel = 'gpt-4.1';
     AIService._instance = this;
   }
 
@@ -99,6 +101,48 @@ Khi được yêu cầu tạo bộ câu hỏi cho game, hãy trả về dạng J
   }
 
   /**
+   * OCR text from an embedded image (data URL)
+   */
+  async ocrImageForWriting(imageDataUrl) {
+    if (!this.openaiKey || !imageDataUrl) return '';
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.openaiKey}`
+        },
+        body: JSON.stringify({
+          model: this.openaiVisionModel,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Extract visible text from this IELTS writing-related image (chart/table/diagram). Return plain text only, concise and accurate.'
+                },
+                {
+                  type: 'image_url',
+                  image_url: { url: imageDataUrl }
+                }
+              ]
+            }
+          ],
+          temperature: 0,
+          max_tokens: 300
+        })
+      });
+      if (!response.ok) return '';
+      const data = await response.json();
+      return String(data?.choices?.[0]?.message?.content || '').trim();
+    } catch (error) {
+      console.warn('OCR Image Error:', error);
+      return '';
+    }
+  }
+
+  /**
    * Score speaking quality based on IELTS-style rubric
    */
   async scoreSpeakingIelts(referenceScript, transcript) {
@@ -134,7 +178,7 @@ Scoring rules:
           Authorization: `Bearer ${this.openaiKey}`
         },
         body: JSON.stringify({
-          model: this.openaiModel,
+          model: this.openaiIeltsModel,
           messages: [{ role: 'user', content: scoringPrompt }],
           temperature: 0.2,
           max_tokens: 700,
@@ -161,7 +205,7 @@ Scoring rules:
    * Generate IELTS Writing prompt (Task 1/Task 2) based on seed + optional document.
    * Returns: { prompt: string }
    */
-  async generateIeltsWritingPrompt({ taskType, seed, sourceDocumentText }) {
+  async generateIeltsWritingPrompt({ taskType, seed, sourceDocumentText, images = [] }) {
     try {
       const typeLabelMap = {
         task1: 'IELTS Writing Task 1 (auto Academic/General)',
@@ -170,6 +214,7 @@ Scoring rules:
         task2: 'IELTS Writing Task 2'
       };
       const typeLabel = typeLabelMap[taskType] || typeLabelMap.task2;
+      const hasImages = images.length > 0;
       const generationPrompt = `You are an IELTS Writing examiner and question writer.
 Return ONLY valid JSON with this schema:
 {
@@ -184,6 +229,7 @@ Constraints:
 - If Task 1 General: provide a realistic letter situation with 3 bullet points and mention minimum 150 words.
 - If Task 1 auto mode: choose either Academic or General format naturally from seed/document context.
 - Keep the prompt self-contained and realistic.
+${hasImages ? '- Images are attached. Perform OCR on tables/charts/diagrams, convert them to markdown/LaTeX, and incorporate the visual data into the generated prompt.' : ''}
 
 Target: ${typeLabel}
 
@@ -194,6 +240,16 @@ Optional source document (use it as topic grounding, do not copy long passages):
 ${sourceDocumentText ? sourceDocumentText.slice(0, 4000) : '(none)'}
 `;
 
+      const userContent = hasImages
+        ? [
+            { type: 'text', text: generationPrompt },
+            ...images.map((imgDataUri) => ({
+              type: 'image_url',
+              image_url: { url: imgDataUri, detail: 'high' }
+            }))
+          ]
+        : generationPrompt;
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -202,7 +258,7 @@ ${sourceDocumentText ? sourceDocumentText.slice(0, 4000) : '(none)'}
         },
         body: JSON.stringify({
           model: this.openaiModel,
-          messages: [{ role: 'user', content: generationPrompt }],
+          messages: [{ role: 'user', content: userContent }],
           temperature: 0.6,
           max_tokens: 700,
           response_format: { type: 'json_object' }
@@ -235,14 +291,25 @@ ${sourceDocumentText ? sourceDocumentText.slice(0, 4000) : '(none)'}
    * - force_task1: always score as Task 1 (Task Achievement)
    * - force_task2: always score as Task 2 (Task Response)
    */
-  async scoreWritingIelts({ taskType, gradingMode = 'auto', prompt, essay }) {
+  async scoreWritingIelts({ taskType, gradingMode = 'auto', prompt, essay, images = [] }) {
     try {
       const requestedMode = gradingMode || (taskType === 'task1' ? 'force_task1' : 'force_task2');
       const localWordCount = String(essay || '').trim().split(/\s+/).filter(Boolean).length;
       const normalizedPrompt = String(prompt || '').trim();
+      const hasImages = images.length > 0;
       const scoringPrompt = `You are an official IELTS Writing examiner.
 Score strictly using IELTS Writing band descriptors.
 Do not hallucinate missing prompt details. If task data is incomplete, state that clearly.
+${hasImages ? `
+IMAGE HANDLING RULES (CRITICAL):
+- Carefully OCR all attached images.
+- For tables: convert to markdown table AND note key data.
+- For charts/graphs/maps/diagrams: describe data trends, key figures, and units.
+- The images may contain the TASK QUESTION (e.g., a table to describe) and/or the CANDIDATE'S HANDWRITTEN ESSAY.
+- SEPARATE THEM: identify which image is the task prompt and which is the candidate writing.
+- Use the task prompt image to grade Task Achievement accurately.
+- Use the candidate writing image to extract the full essay text for grading.
+` : ''}
 
 Return ONLY valid JSON with this schema:
 {
@@ -270,6 +337,7 @@ Return ONLY valid JSON with this schema:
 Rules:
 - Band scale: 0.0 to 9.0 (step 0.5).
 - Detect task type first from prompt text.
+- If essay contains copied prompt fragments, OCR labels, metadata bullets or extraction artifacts, ignore those lines and score only the candidate's actual response.
 - If mode is force_task1: score with Task 1 criteria only (Task Achievement + CC + LR + GRA), set taskResponse to null.
 - If mode is force_task1_academic: force IELTS Academic Writing Task 1 scoring, set taskResponse to null.
 - If mode is force_task1_general: force IELTS General Training Writing Task 1 scoring, set taskResponse to null.
@@ -291,8 +359,18 @@ Writing prompt:
 ${normalizedPrompt || '(No prompt provided. Detect task only from essay cues and grade provisionally.)'}
 
 Candidate essay:
-${essay}
+${essay || '(No typed text. Extract from image if provided.)'}
 `;
+
+      const userContent = hasImages
+        ? [
+            { type: 'text', text: scoringPrompt },
+            ...images.map((imgDataUri) => ({
+              type: 'image_url',
+              image_url: { url: imgDataUri, detail: 'high' }
+            }))
+          ]
+        : scoringPrompt;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -302,7 +380,7 @@ ${essay}
         },
         body: JSON.stringify({
           model: this.openaiModel,
-          messages: [{ role: 'user', content: scoringPrompt }],
+          messages: [{ role: 'user', content: userContent }],
           temperature: 0.2,
           max_tokens: 1200,
           response_format: { type: 'json_object' }
